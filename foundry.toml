@@ -1,0 +1,48 @@
+[profile.default]
+src = 'src'
+test = 'test'
+out = 'out'
+libs = ["dependencies"]
+solc_version = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 1000
+via_ir = true
+ffi = true
+remappings = [
+    "@forge-std/=dependencies/forge-std-1.9.6/src/",
+    "@solady/=dependencies/solady-0.1.10/src/",
+]
+
+[profile.default.fuzz]
+runs = 1000
+
+[profile.pr.fuzz]
+runs = 10000
+
+[profile.ci.fuzz]
+runs = 100000
+
+[fmt]
+line_length = 80
+number_underscore = "thousands"
+single_line_statement_blocks = "preserve"
+multiline_func_header = "all"
+sort_imports = true
+contract_new_lines = true
+override_spacing = false
+wrap_comments = true
+tab_width = 4
+ignore = []
+
+[dependencies]
+forge-std = "1.9.6"
+solady = "0.1.10"
+
+[soldeer]
+remappings_generate = true
+remappings_regenerate = false
+recursive_deps = true
+remappings_version = true
+remappings_prefix = ""
+remappings_location = "config"

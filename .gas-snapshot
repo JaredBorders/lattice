@@ -1,0 +1,7 @@
+QueueTest:test_queue_dequeue(uint8) (runs: 1009, μ: 1852149, ~: 1029847)
+QueueTest:test_queue_dequeue_empty(uint8) (runs: 1009, μ: 1732696, ~: 964925)
+QueueTest:test_queue_enqueue(uint8) (runs: 1009, μ: 2024456, ~: 1122830)
+QueueTest:test_queue_isEmpty(uint8) (runs: 1010, μ: 1789933, ~: 749896)
+QueueTest:test_queue_peek(uint8) (runs: 1009, μ: 2023157, ~: 1121531)
+QueueTest:test_queue_peek_empty() (gas: 10756)
+QueueTest:test_queue_size(uint8) (runs: 1010, μ: 1789650, ~: 749613)
