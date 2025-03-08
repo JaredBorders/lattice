@@ -59,7 +59,7 @@ contract Book {
     mapping(uint256 index => Order order) internal orders;
     mapping(uint256 index => STATUS status) internal statuses;
     mapping(uint256 index => address trader) internal traders;
-    mapping(address trader => uint256 indices) internal trades;
+    mapping(address trader => uint256[] indices) internal trades;
 
     constructor(address clearinghouse_, address numeraire_, address index_) {
         clearinghouse = Clearinghouse(clearinghouse_);
@@ -83,7 +83,7 @@ contract Book {
         orders[id] = order_;
         statuses[id] = STATUS.OPEN;
         traders[id] = msg.sender;
-        trades[msg.sender] = id;
+        trades[msg.sender].push(id);
 
         if (order_.kind == KIND.MARKET) {
             if (order_.side == SIDE.BID) {
