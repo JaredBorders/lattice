@@ -61,11 +61,20 @@ contract Book {
     mapping(uint256 index => address trader) internal traders;
     mapping(address trader => uint256 indices) internal trades;
 
+    constructor(address clearinghouse_, address numeraire_, address index_) {
+        clearinghouse = Clearinghouse(clearinghouse_);
+        numeraire = Synth(numeraire_);
+        index = Synth(index_);
+    }
+
     function depth(Price tick_)
         public
         view
         returns (uint256 bids, uint256 asks)
-    {}
+    {
+        Level storage level = levels[tick_];
+        return (level.bidDepth, level.askDepth);
+    }
 
     function place(Order memory order_) public {
         Level storage level = levels[order_.price];
@@ -80,14 +89,16 @@ contract Book {
             if (order_.side == SIDE.BID) {
                 if (level.askDepth < order_.quantity) return;
                 clearinghouse.transfer(
-                    numeraire, order_.quantity, address(this)
+                    numeraire, order_.quantity, msg.sender, address(this)
                 );
                 fill(id);
             }
 
             if (order_.side == SIDE.ASK) {
                 if (level.bidDepth < order_.quantity) return;
-                clearinghouse.transfer(index, order_.quantity, address(this));
+                clearinghouse.transfer(
+                    index, order_.quantity, msg.sender, address(this)
+                );
                 fill(id);
             }
         }
@@ -95,14 +106,16 @@ contract Book {
         if (order_.kind == KIND.LIMIT) {
             if (order_.side == SIDE.BID) {
                 clearinghouse.transfer(
-                    numeraire, order_.quantity, address(this)
+                    numeraire, order_.quantity, msg.sender, address(this)
                 );
                 level.bids.enqueue(id);
                 level.bidDepth += order_.quantity;
             }
 
             if (order_.side == SIDE.ASK) {
-                clearinghouse.transfer(index, order_.quantity, address(this));
+                clearinghouse.transfer(
+                    index, order_.quantity, msg.sender, address(this)
+                );
                 level.asks.enqueue(id);
                 level.askDepth += order_.quantity;
             }
@@ -111,8 +124,43 @@ contract Book {
         id++;
     }
 
-    /// @custom:todo
-    function remove(uint256 orderId_) public {}
+    function remove(uint256 orderId_) public {
+        require(traders[orderId_] == msg.sender, "Not order owner");
+
+        STATUS status = statuses[orderId_];
+
+        require(
+            status == STATUS.OPEN || status == STATUS.PARTIAL,
+            "Order not removable"
+        );
+
+        Order storage order = orders[orderId_];
+        Level storage level = levels[order.price];
+
+        statuses[orderId_] = STATUS.CANCELLED;
+
+        if (order.kind == KIND.LIMIT) {
+            if (order.side == SIDE.BID) {
+                // Update bid depth
+                level.bidDepth -= order.remaining;
+
+                // Refund remaining numeraire tokens
+                clearinghouse.transfer(
+                    numeraire, order.remaining, address(this), msg.sender
+                );
+            }
+
+            if (order.side == SIDE.ASK) {
+                // Update ask depth
+                level.askDepth -= order.remaining;
+
+                // Refund remaining index tokens
+                clearinghouse.transfer(
+                    index, order.remaining, address(this), msg.sender
+                );
+            }
+        }
+    }
 
     function fill(uint256 orderId_) public view {
         Order storage order = orders[orderId_];
