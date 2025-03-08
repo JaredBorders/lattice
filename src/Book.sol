@@ -36,13 +36,17 @@ contract Book {
         CANCELLED
     }
 
-    struct Order {
-        uint256 id;
+    struct Trade {
         address trader;
         KIND kind;
         SIDE side;
         Price price;
         uint256 quantity;
+    }
+
+    struct Order {
+        uint256 id;
+        Trade trade;
         uint256 remaining;
     }
 
@@ -76,48 +80,43 @@ contract Book {
         return (level.bidDepth, level.askDepth);
     }
 
-    function place(Order memory order_) public {
-        Level storage level = levels[order_.price];
+    function place(Trade calldata trade_) public {
+        // create reference to price level for given trade price
+        Level storage level = levels[trade_.price];
 
-        order_.id = id;
+        // initialize unique order for given trade
+        Order memory order_ =
+            Order({id: id, trade: trade_, remaining: trade_.quantity});
+
+        /// @dev map incremental id to trade; enforces synchronized order flow
         orders[id] = order_;
         statuses[id] = STATUS.OPEN;
-        traders[id] = msg.sender;
-        trades[msg.sender].push(id);
+        traders[id] = trade_.trader;
+        trades[trade_.trader].push(id);
 
-        if (order_.kind == KIND.MARKET) {
-            if (order_.side == SIDE.BID) {
-                if (level.askDepth < order_.quantity) return;
-                clearinghouse.transfer(
-                    numeraire, order_.quantity, msg.sender, address(this)
-                );
-                fill(id);
+        /// @custom:market orders are fill-or-kill; no partial fills
+        /// @dev market orders never add liquidity to the book
+        if (trade_.kind == KIND.MARKET) {
+            if (trade_.side == SIDE.BID) {
+                /// @custom:todo attempt to fill market bid order
             }
 
-            if (order_.side == SIDE.ASK) {
-                if (level.bidDepth < order_.quantity) return;
-                clearinghouse.transfer(
-                    index, order_.quantity, msg.sender, address(this)
-                );
-                fill(id);
+            if (trade_.side == SIDE.ASK) {
+                /// @custom:todo attempt to fill market ask order
             }
         }
 
-        if (order_.kind == KIND.LIMIT) {
-            if (order_.side == SIDE.BID) {
-                clearinghouse.transfer(
-                    numeraire, order_.quantity, msg.sender, address(this)
-                );
+        /// @custom:limit orders immediately added to book
+        /// @dev limit orders add liquidity to the book
+        if (trade_.kind == KIND.LIMIT) {
+            if (trade_.side == SIDE.BID) {
                 level.bids.enqueue(id);
-                level.bidDepth += order_.quantity;
+                level.bidDepth += trade_.quantity;
             }
 
-            if (order_.side == SIDE.ASK) {
-                clearinghouse.transfer(
-                    index, order_.quantity, msg.sender, address(this)
-                );
+            if (trade_.side == SIDE.ASK) {
                 level.asks.enqueue(id);
-                level.askDepth += order_.quantity;
+                level.askDepth += trade_.quantity;
             }
         }
 
