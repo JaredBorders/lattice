@@ -84,30 +84,32 @@ contract Book {
         // create reference to price level for given trade price
         Level storage level = levels[trade_.price];
 
-        // initialize unique order for given trade
-        Order memory order_ =
-            Order({id: id, trade: trade_, remaining: trade_.quantity});
-
-        /// @dev map incremental id to trade; enforces synchronized order flow
-        orders[id] = order_;
-        statuses[id] = STATUS.OPEN;
-        traders[id] = trade_.trader;
-        trades[trade_.trader].push(id);
-
         /// @custom:market orders are fill-or-kill; no partial fills
-        /// @dev market orders never add liquidity to the book
         if (trade_.kind == KIND.MARKET) {
+            uint256 quantity = trade_.quantity;
+            uint256 price = Price.unwrap(trade_.price);
+            address trader = trade_.trader;
+
+            /// @dev to fill, a bid must be matched with an ask
             if (trade_.side == SIDE.BID) {
-                /// @custom:todo attempt to fill market bid order
+                if (level.askDepth >= quantity / price) {
+                    numeraire.transferFrom(trader, address(this), quantity);
+
+                    fill(trade_);
+                }
             }
 
+            /// @dev to fill, an ask must be matched with a bid
             if (trade_.side == SIDE.ASK) {
-                /// @custom:todo attempt to fill market ask order
+                if (level.bidDepth >= quantity * price) {
+                    index.transferFrom(trader, address(this), quantity);
+
+                    fill(trade_);
+                }
             }
         }
 
-        /// @custom:limit orders immediately added to book
-        /// @dev limit orders add liquidity to the book
+        /// @custom:limit orders are filled (partially or fully) when possible
         if (trade_.kind == KIND.LIMIT) {
             if (trade_.side == SIDE.BID) {
                 level.bids.enqueue(id);
@@ -134,12 +136,12 @@ contract Book {
         );
 
         Order storage order = orders[orderId_];
-        Level storage level = levels[order.price];
+        Level storage level = levels[order.trade.price];
 
         statuses[orderId_] = STATUS.CANCELLED;
 
-        if (order.kind == KIND.LIMIT) {
-            if (order.side == SIDE.BID) {
+        if (order.trade.kind == KIND.LIMIT) {
+            if (order.trade.side == SIDE.BID) {
                 // Update bid depth
                 level.bidDepth -= order.remaining;
 
@@ -149,7 +151,7 @@ contract Book {
                 );
             }
 
-            if (order.side == SIDE.ASK) {
+            if (order.trade.side == SIDE.ASK) {
                 // Update ask depth
                 level.askDepth -= order.remaining;
 
@@ -161,11 +163,13 @@ contract Book {
         }
     }
 
+    function fill(Trade calldata trade_) public view {}
+
     function fill(uint256 orderId_) public view {
         Order storage order = orders[orderId_];
-        Level storage level = levels[order.price];
+        Level storage level = levels[order.trade.price];
 
-        if (order.side == SIDE.BID) {
+        if (order.trade.side == SIDE.BID) {
             // fill bid order with ask order(s)
             // - bid order status must be FILLED
             // - ask order status must be FILLED unless last ask order
@@ -190,7 +194,7 @@ contract Book {
             } while (true);
         }
 
-        if (order.side == SIDE.ASK) {
+        if (order.trade.side == SIDE.ASK) {
             // fill ask order with bid order(s)
             // - ask order status must be FILLED
             // - bid order status must be FILLED unless last bid order
@@ -233,8 +237,8 @@ contract Book {
         pure
         returns (int256)
     {
-        if (bid_.quantity < ask_.quantity) return -1;
-        if (bid_.quantity > ask_.quantity) return 1;
+        if (bid_.trade.quantity < ask_.trade.quantity) return -1;
+        if (bid_.trade.quantity > ask_.trade.quantity) return 1;
         return 0;
     }
 
