@@ -37,6 +37,7 @@ contract Book {
     }
 
     struct Order {
+        uint256 id;
         address trader;
         KIND kind;
         SIDE side;
@@ -58,49 +59,63 @@ contract Book {
     mapping(uint256 index => Order order) internal orders;
     mapping(uint256 index => STATUS status) internal statuses;
     mapping(uint256 index => address trader) internal traders;
-    mapping(address trader => uint256 indices) internal trades;
+    mapping(address trader => uint256[] indices) internal trades;
+
+    constructor(address clearinghouse_, address numeraire_, address index_) {
+        clearinghouse = Clearinghouse(clearinghouse_);
+        numeraire = Synth(numeraire_);
+        index = Synth(index_);
+    }
 
     function depth(Price tick_)
         public
         view
         returns (uint256 bids, uint256 asks)
-    {}
+    {
+        Level storage level = levels[tick_];
+        return (level.bidDepth, level.askDepth);
+    }
 
-    function place(Order calldata order_) public {
+    function place(Order memory order_) public {
         Level storage level = levels[order_.price];
 
+        order_.id = id;
         orders[id] = order_;
         statuses[id] = STATUS.OPEN;
         traders[id] = msg.sender;
-        trades[msg.sender] = id;
+        trades[msg.sender].push(id);
 
         if (order_.kind == KIND.MARKET) {
             if (order_.side == SIDE.BID) {
                 if (level.askDepth < order_.quantity) return;
                 clearinghouse.transfer(
-                    numeraire, order_.quantity, address(this)
+                    numeraire, order_.quantity, msg.sender, address(this)
                 );
-                fill(order_);
+                fill(id);
             }
 
             if (order_.side == SIDE.ASK) {
                 if (level.bidDepth < order_.quantity) return;
-                clearinghouse.transfer(index, order_.quantity, address(this));
-                fill(order_);
+                clearinghouse.transfer(
+                    index, order_.quantity, msg.sender, address(this)
+                );
+                fill(id);
             }
         }
 
         if (order_.kind == KIND.LIMIT) {
             if (order_.side == SIDE.BID) {
                 clearinghouse.transfer(
-                    numeraire, order_.quantity, address(this)
+                    numeraire, order_.quantity, msg.sender, address(this)
                 );
                 level.bids.enqueue(id);
                 level.bidDepth += order_.quantity;
             }
 
             if (order_.side == SIDE.ASK) {
-                clearinghouse.transfer(index, order_.quantity, address(this));
+                clearinghouse.transfer(
+                    index, order_.quantity, msg.sender, address(this)
+                );
                 level.asks.enqueue(id);
                 level.askDepth += order_.quantity;
             }
@@ -109,13 +124,49 @@ contract Book {
         id++;
     }
 
-    /// @custom:todo
-    function remove(Order calldata order_) public {}
+    function remove(uint256 orderId_) public {
+        require(traders[orderId_] == msg.sender, "Not order owner");
 
-    function fill(Order calldata order_) public view {
-        Level storage level = levels[order_.price];
+        STATUS status = statuses[orderId_];
 
-        if (order_.side == SIDE.BID) {
+        require(
+            status == STATUS.OPEN || status == STATUS.PARTIAL,
+            "Order not removable"
+        );
+
+        Order storage order = orders[orderId_];
+        Level storage level = levels[order.price];
+
+        statuses[orderId_] = STATUS.CANCELLED;
+
+        if (order.kind == KIND.LIMIT) {
+            if (order.side == SIDE.BID) {
+                // Update bid depth
+                level.bidDepth -= order.remaining;
+
+                // Refund remaining numeraire tokens
+                clearinghouse.transfer(
+                    numeraire, order.remaining, address(this), msg.sender
+                );
+            }
+
+            if (order.side == SIDE.ASK) {
+                // Update ask depth
+                level.askDepth -= order.remaining;
+
+                // Refund remaining index tokens
+                clearinghouse.transfer(
+                    index, order.remaining, address(this), msg.sender
+                );
+            }
+        }
+    }
+
+    function fill(uint256 orderId_) public view {
+        Order storage order = orders[orderId_];
+        Level storage level = levels[order.price];
+
+        if (order.side == SIDE.BID) {
             // fill bid order with ask order(s)
             // - bid order status must be FILLED
             // - ask order status must be FILLED unless last ask order
@@ -126,9 +177,9 @@ contract Book {
 
                 /// @custom:todo
 
-                if (__compareQuantity(order_, ask) == 0) break;
-                if (__compareQuantity(order_, ask) == -1) break;
-                if (__compareQuantity(order_, ask) == 1) break;
+                if (__compareQuantity(order, ask) == 0) break;
+                if (__compareQuantity(order, ask) == -1) break;
+                if (__compareQuantity(order, ask) == 1) break;
 
                 // filled ask orders must be dequeued/removed
                 // if partial ask order:
@@ -140,7 +191,7 @@ contract Book {
             } while (true);
         }
 
-        if (order_.side == SIDE.ASK) {
+        if (order.side == SIDE.ASK) {
             // fill ask order with bid order(s)
             // - ask order status must be FILLED
             // - bid order status must be FILLED unless last bid order
@@ -151,9 +202,9 @@ contract Book {
 
                 /// @custom:todo
 
-                if (__compareQuantity(bid, order_) == 0) break;
-                if (__compareQuantity(bid, order_) == -1) break;
-                if (__compareQuantity(bid, order_) == 1) break;
+                if (__compareQuantity(bid, order) == 0) break;
+                if (__compareQuantity(bid, order) == -1) break;
+                if (__compareQuantity(bid, order) == 1) break;
 
                 // filled bid orders must be dequeued/removed
                 // if partial bid order:
