@@ -88,27 +88,92 @@ contract Book {
         if (trade_.kind == KIND.MARKET) {
             uint256 quantity = trade_.quantity;
             uint256 price = Price.unwrap(trade_.price);
-            address trader = trade_.trader;
 
             /// @dev to fill, a bid must be matched with an ask
             if (trade_.side == SIDE.BID) {
-                if (level.askDepth >= quantity / price) {
-                    numeraire.transferFrom(trader, address(this), quantity);
+                uint256 desired = quantity / price;
+                if (level.askDepth >= desired) {
+                    while (desired > 0) {
+                        // peek at ask order at front of queue
+                        Order storage ask = orders[level.asks.peek()];
 
-                    fill(trade_);
+                        if (desired >= ask.remaining) {
+                            /// @custom:desired update ->
+                            // desired: desired - ask.remaining
+
+                            /// @custom:order update ->
+                            // orders: ask status to FILLED
+                            // orders: ask remaining to 0
+
+                            /// @custom:level update ->
+                            // level: ask depth
+                            // level: dequeue ask order
+
+                            /// @custom:settlement
+                            // index tokens --> trader who placed market bid
+                            // numeraire tokens --> trader who placed ask
+                        } else {
+                            /// @custom:desired update ->
+                            // desired: 0
+
+                            /// @custom:order update ->
+                            // orders: ask status to PARTIAL
+                            // orders: ask remaining to ask.remaining - desired
+
+                            /// @custom:level update ->
+                            // level: ask depth
+
+                            /// @custom:settlement
+                            // index tokens --> trader who placed market bid
+                            // numeraire tokens --> trader who placed ask
+                        }
+                    }
                 }
             }
 
             /// @dev to fill, an ask must be matched with a bid
             if (trade_.side == SIDE.ASK) {
-                if (level.bidDepth >= quantity * price) {
-                    index.transferFrom(trader, address(this), quantity);
+                uint256 desired = quantity * price;
+                if (level.bidDepth >= desired) {
+                    while (desired > 0) {
+                        // peek at bid order at front of queue
+                        Order storage bid = orders[level.bids.peek()];
 
-                    fill(trade_);
+                        if (desired >= bid.remaining) {
+                            /// @custom:desired update ->
+                            // desired: desired - bid.remaining
+
+                            /// @custom:order update ->
+                            // orders: bid status to FILLED
+                            // orders: bid remaining to 0
+
+                            /// @custom:level update ->
+                            // level: bid depth
+                            // level: dequeue bid order
+
+                            /// @custom:settlement
+                            // numeraire tokens --> trader who placed market ask
+                            // index tokens --> trader who placed bid
+                        } else {
+                            /// @custom:desired update ->
+                            // desired: 0
+
+                            /// @custom:order update ->
+                            // orders: bid status to PARTIAL
+                            // orders: bid remaining to bid.remaining - desired
+
+                            /// @custom:level update ->
+                            // level: bid depth
+
+                            /// @custom:settlement
+                            // numeraire tokens --> trader who placed market ask
+                            // index tokens --> trader who placed bid
+                        }
+                    }
                 }
             }
         }
-
+        
         /// @custom:limit orders are filled (partially or fully) when possible
         if (trade_.kind == KIND.LIMIT) {
             if (trade_.side == SIDE.BID) {
