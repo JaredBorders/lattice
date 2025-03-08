@@ -37,6 +37,7 @@ contract Book {
     }
 
     struct Order {
+        uint256 id;
         address trader;
         KIND kind;
         SIDE side;
@@ -66,9 +67,10 @@ contract Book {
         returns (uint256 bids, uint256 asks)
     {}
 
-    function place(Order calldata order_) public {
+    function place(Order memory order_) public {
         Level storage level = levels[order_.price];
 
+        order_.id = id;
         orders[id] = order_;
         statuses[id] = STATUS.OPEN;
         traders[id] = msg.sender;
@@ -80,13 +82,13 @@ contract Book {
                 clearinghouse.transfer(
                     numeraire, order_.quantity, address(this)
                 );
-                fill(order_);
+                fill(id);
             }
 
             if (order_.side == SIDE.ASK) {
                 if (level.bidDepth < order_.quantity) return;
                 clearinghouse.transfer(index, order_.quantity, address(this));
-                fill(order_);
+                fill(id);
             }
         }
 
@@ -110,12 +112,13 @@ contract Book {
     }
 
     /// @custom:todo
-    function remove(Order calldata order_) public {}
+    function remove(uint256 orderId_) public {}
 
-    function fill(Order calldata order_) public view {
-        Level storage level = levels[order_.price];
+    function fill(uint256 orderId_) public view {
+        Order storage order = orders[orderId_];
+        Level storage level = levels[order.price];
 
-        if (order_.side == SIDE.BID) {
+        if (order.side == SIDE.BID) {
             // fill bid order with ask order(s)
             // - bid order status must be FILLED
             // - ask order status must be FILLED unless last ask order
@@ -126,9 +129,9 @@ contract Book {
 
                 /// @custom:todo
 
-                if (__compareQuantity(order_, ask) == 0) break;
-                if (__compareQuantity(order_, ask) == -1) break;
-                if (__compareQuantity(order_, ask) == 1) break;
+                if (__compareQuantity(order, ask) == 0) break;
+                if (__compareQuantity(order, ask) == -1) break;
+                if (__compareQuantity(order, ask) == 1) break;
 
                 // filled ask orders must be dequeued/removed
                 // if partial ask order:
@@ -140,7 +143,7 @@ contract Book {
             } while (true);
         }
 
-        if (order_.side == SIDE.ASK) {
+        if (order.side == SIDE.ASK) {
             // fill ask order with bid order(s)
             // - ask order status must be FILLED
             // - bid order status must be FILLED unless last bid order
@@ -151,9 +154,9 @@ contract Book {
 
                 /// @custom:todo
 
-                if (__compareQuantity(bid, order_) == 0) break;
-                if (__compareQuantity(bid, order_) == -1) break;
-                if (__compareQuantity(bid, order_) == 1) break;
+                if (__compareQuantity(bid, order) == 0) break;
+                if (__compareQuantity(bid, order) == -1) break;
+                if (__compareQuantity(bid, order) == 1) break;
 
                 // filled bid orders must be dequeued/removed
                 // if partial bid order:
