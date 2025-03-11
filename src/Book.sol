@@ -24,6 +24,12 @@ contract Book {
         ASK
     }
 
+    enum PARTICIPANT {
+        ANY,
+        MAKER,
+        TAKER
+    }
+
     enum STATUS {
         NULL,
         OPEN,
@@ -274,8 +280,115 @@ contract Book {
         // assign ask order id to current identifier then increment
         id = cid++;
 
-        if (level.bids.isEmpty()) revert("Unsupported");
-        else revert("Unsupported");
+        /// @notice create new ask order (in memory)
+        /// @dev ask status is OPEN until filled or cancelled
+        /// @dev initially, remaining quantity is equal to total quantity
+        Order memory ask = Order({
+            id: id,
+            trader: msg.sender,
+            status: STATUS.OPEN,
+            kind: trade_.kind,
+            side: trade_.side,
+            price: trade_.price,
+            quantity: trade_.quantity,
+            remaining: trade_.quantity
+        });
+
+        uint256 p = ask.price;
+        uint256 i = ask.quantity;
+        uint256 n = p * i;
+
+        while (!level.bids.isEmpty()) {
+            uint256 bidId = level.bids.peek();
+            uint256 bidRemaining = orders[bidId].remaining;
+
+            // if bid was previously cancelled, dequeue and continue
+            if (orders[bidId].status == STATUS.CANCELLED) {
+                level.bids.dequeue();
+                continue;
+            }
+
+            // check if peeked bid can be filled completely by current ask
+            if (n >= bidRemaining) {
+                // define amount of bid order filled
+                uint256 bidFilled = bidRemaining;
+
+                // decrement (n) to reflect bid quantity filled
+                n -= bidFilled;
+
+                // reduce bid depth of current price level
+                level.bidDepth -= bidFilled;
+
+                // create reference to bid order
+                Order storage bid = orders[bidId];
+
+                // update bid order status to FILLED
+                bid.status = STATUS.FILLED;
+
+                // update bid order remaining quantity to 0
+                bid.remaining -= bidFilled;
+
+                // update ask order remaining quantity
+                ask.remaining -= bidFilled / p;
+
+                // update ask order status to PARTIAL
+                ask.status = STATUS.PARTIAL;
+
+                /// @custom:settle
+                numeraire.transfer(msg.sender, bidFilled);
+                index.transfer(bid.trader, bidFilled / p);
+
+                /// @custom:dequeue bid order
+                level.bids.dequeue();
+            } else {
+                // define amount of bid order filled
+                uint256 bidFilled = n;
+
+                // decrement (n) to reflect bid quantity filled
+                n -= bidFilled;
+
+                // reduce bid depth of current price level
+                level.bidDepth -= bidFilled;
+
+                // create reference to bid order
+                Order storage bid = orders[bidId];
+
+                // ensure bid order status is PARTIAL
+                bid.status = STATUS.PARTIAL;
+
+                // update bid order remaining quantity
+                bid.remaining -= bidFilled;
+
+                // update ask order remaining quantity
+                ask.remaining -= bidFilled / p;
+
+                // update ask order status to FILLED
+                ask.status = STATUS.FILLED;
+
+                /// @custom:settle
+                numeraire.transfer(msg.sender, bidFilled);
+                index.transfer(bid.trader, bidFilled / p);
+
+                break;
+            }
+        }
+
+        /// @dev if ask not fully filled, enqueue ask order
+        if (ask.status != STATUS.FILLED) {
+            level.asks.enqueue(id);
+        }
+
+        // update ask depth of current price level
+        level.askDepth += ask.remaining;
+
+        // add storage reference to ask order
+        orders[id] = ask;
+
+        // add storage reference to trader responsible for ask order
+        traders[id] = msg.sender;
+
+        // add order id to the history of trades made by trader
+        trades[msg.sender].push(id);
     }
 
 }
