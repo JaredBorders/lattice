@@ -1,13 +1,13 @@
-# Book.sol – Minimal Limit-Order Book
+# Book.sol – Limit-Order Book (LOB) based Exchange Mechanism
 
 ## Overview
 
-**`Book`** is a minimal implementation of a limit-order book for two tokens:
+**`Book`** is an implementation of a permissionless limit-order book exchange for two tokens:
 
 - A **numeraire** token (e.g., sUSD).
 - An **index** token (e.g., sETH).
 
-The contract allows users to place **limit orders** (and potentially market orders, though it’s currently marked as unsupported) for **bid** (buy index with numeraire) or **ask** (sell index for numeraire). Each order is stored on-chain along with a price level and inserted into a first-in-first-out (FIFO) queue for matching.
+The contract allows users to place **bid** (buy index with numeraire) and **ask** (sell index for numeraire) **limit orders**. Each order is stored on-chain along with a price level and inserted into a first-in-first-out (FIFO) queue for time-priority based order matching.
 
 ---
 
@@ -16,12 +16,12 @@ The contract allows users to place **limit orders** (and potentially market orde
 1. [Key Data Structures](#key-data-structures)
 2. [Constructor](#constructor)
 3. [Public Functions](#public-functions)
-   - [\`depth\`](#depth)
-   - [\`place\`](#place)
-   - [\`remove\`](#remove)
-4. [Internal Matching Functions](#internal-matching-functions)
-   - [\`\_\_placeBid\`](#__placebid)
-   - [\`\_\_placeAsk\`](#__placeask)
+   - [depth()](#depth)
+   - [place()](#place)
+   - [remove()](#remove)
+4. [Private Matching Functions](#private-matching-functions)
+   - [\_\_placeBid()](#__placebid)
+   - [\_\_placeAsk()](#__placeask)
 5. [Key Notes & Behavior](#key-notes--behavior)
 
 ---
@@ -54,20 +54,20 @@ The contract allows users to place **limit orders** (and potentially market orde
 
    - `kind`: whether it’s `MARKET` or `LIMIT`.
    - `side`: either `BID` or `ASK`.
-   - `price`: how many numeraire tokens for 1 index token.
-   - `quantity`: total numeraire tokens (for a BID) or total index tokens (for an ASK).
+   - `price`: the price level for which the order is to be placed measured in numeraire tokens per index token (e.g., 3,000 sUSD/sETH).
+   - `quantity`: total numeraire tokens (for a **BID**) or total index tokens (for an **ASK**).
 
 2. **`Order`**  
    Stored in `orders[id]` mapping. Represents a single order with fields:
 
-   - `id`: unique numeric identifier.
+   - `id`: unique numeric identifier (starting at `0`) that is incremented for each order placed.
    - `trader`: the address that placed it.
    - `status`: current state (`OPEN`, `PARTIAL`, `FILLED`, `CANCELLED`).
    - `kind`: `MARKET` or `LIMIT`.
    - `side`: `BID` or `ASK`.
-   - `price`: numeraire per 1 index token (e.g., 3,000 sUSD/sETH)
-   - `quantity`: the original total quantity.
-   - `remaining`: how many tokens are still unfilled.
+   - `price`: the price level for which the order is to be placed measured in numeraire tokens per index token (e.g., 3,000 sUSD/sETH).
+   - `quantity`: the **original total quantity** of numeraire tokens (for a **BID**) or index tokens (for an **ASK**).
+   - `remaining`: the **current remaining quantity** of numeraire tokens (for a **BID**) or index tokens (for an **ASK**) awaiting fill.
 
 3. **`Level`**  
    Each price level has:
@@ -116,6 +116,8 @@ Allows anyone to query the aggregated liquidity at a certain **price**.
 - It does not return the specific order IDs or their owners.
 - It does not match or change any order.
 
+---
+
 ### `place(Trade calldata trade_)`
 
 ```solidity
@@ -128,7 +130,7 @@ Entry point for creating either a **limit** or **market** order, on the **buy** 
 - **Parameters:**
   - `trade_.quantity` must be non-zero.
   - `trade_.price` must be non-zero.
-  - `trade_.kind`: only `KIND.LIMIT` is supported here.
+  - `trade_.kind`: currently, only `KIND.LIMIT` is supported.
   - `trade_.side`: `BID` or `ASK`.
 
 **Behavior:**
@@ -141,8 +143,11 @@ Entry point for creating either a **limit** or **market** order, on the **buy** 
 
 **What It Does Not Do:**
 
-- No immediate settlement for an **ask** is shown here (the method is incomplete in the example).
-- Does not handle partial or “time in force” logic (other than partial fills done in the matching function).
+- Does not handle advanced partial or “time in force” logic (other than partial fills done in the matching function).
+- Does not cross-match multiple price levels. Each call matches only orders at the specified `trade_.price`.
+- Does not allow specification of a desired market participant role (e.g., **_maker_** or **_taker_** of book liquidity).
+
+---
 
 ### `remove(uint256 id_)`
 
@@ -173,7 +178,7 @@ Allows the **owner** of an order to cancel it before it is fully filled. Returns
 
 ---
 
-## Internal Matching Functions
+## Private Matching Functions
 
 ### `__placeBid(Trade calldata trade_) -> uint256`
 
@@ -227,34 +232,71 @@ Creates a **new bid** limit order (buying `index` with `numeraire`), **immediate
 **What It Does Not Do:**
 
 - It does **not** handle any price crossing (bids that exceed multiple price levels). This example only matches within the same exact `trade_.price` level.
-- Does not remove “partially filled” asks from the queue except for the portion that was filled. If the ask remains partially open, it will stay in the queue, or be re-enqueued in a more complete design.
+- It does not remove “partially filled” asks from the queue except for the portion that was filled. If the ask remains partially open, it will stay in the queue.
 
-### `__placeAsk(Trade calldata trade_) -> uint256 id`
+---
+
+### `__placeAsk(Trade calldata trade_) -> uint256`
 
 ```solidity
 function __placeAsk(Trade calldata trade_) private returns (uint256 id)
 ```
 
 **Purpose:**  
-Would mirror `__placeBid` but for sells. Transfers `index` tokens from the user to the contract, attempts to fill them immediately with any existing **bids**. The given code is just a stub:
+Creates a **new ask** limit order (selling `index` for `numeraire`), **immediately** attempts to fill it against existing bid orders in the same price level, and enqueues any leftover portion if it’s not fully filled.
 
-```solidity
-if (level.bids.isEmpty()) revert("Unsupported");
-else revert("Unsupported");
-```
+**Process Details:**
 
-At present, it always reverts as “Unsupported.” The matching logic for an ask would be symmetrical to the bid side:
+1. **Immediate Token Transfer**
 
-- Transfer `index` tokens in.
-- Loop through `level.bids` (peek the top).
-- Compare how many index tokens remain to be sold vs. how much the bid can buy.
-- Fill partially or fully, track statuses, etc.
+   - `index.transferFrom(msg.sender, address(this), trade_.quantity);`
+   - Locks the entire ask’s `quantity` of index tokens into the contract up front.
+
+2. **Initialize Order**
+
+   - Creates an `Order memory ask` with:
+     - `id` = `cid++` (unique ascending ID)
+     - `status = OPEN`
+     - `price`, `quantity`, and `remaining = quantity`.
+
+3. **Compute Helper Variable**
+
+   - `i = ask.quantity` is how many index tokens the user wants to sell.
+   - `p = ask.price`.
+   - `n = p * i` is the total numeraire the user _could_ receive if the order fully fills.
+
+4. **Matching Loop**
+
+   - While there are bid orders in `level.bids`, do:
+     1. Peek the front bid (`bidId = level.bids.peek()`).
+     2. If that bid is `CANCELLED`, dequeue it and skip.
+     3. Compare how many numeraire tokens the new ask can still receive (`n`) vs. how many numeraire tokens the bid has left (`bidRemaining`).
+     4. If `n >= bidRemaining`, fill the entire **bid**:
+        - Decrement `n` by `bidRemaining`.
+        - Mark the bid as `FILLED`, set `bid.remaining` to 0, dequeue it.
+        - Reduce `ask.remaining` in terms of **index** tokens: `ask.remaining -= bidRemaining / p`.
+        - Set `ask.status = PARTIAL` (since it’s partially matched).
+        - Settle:
+          - Transfer `bidRemaining` numeraire to the ask’s trader (the seller).
+          - Transfer `(bidRemaining / p)` index tokens to the bid’s trader (the buyer).
+     5. Else fill the entire _ask_ (but only part of the bid):
+        - Fill `n` worth of the bid’s numeraire.
+        - Mark the bid as `PARTIAL` (`bid.remaining -= n`).
+        - Mark the ask as `FILLED` (`ask.remaining -= n / p`).
+        - Transfer `n` numeraire to the ask’s trader.
+        - Transfer `(n / p)` index tokens to the bid’s trader.
+        - Break the loop (the ask is done).
+
+5. **Post-Loop**
+   - If the ask is still not `FILLED`, it means we either matched partially or not at all. We enqueue the leftover ask to `level.asks`.
+   - Increase `level.askDepth` by the leftover `ask.remaining`.
+   - Store the final `ask` in `orders[id]`.
+   - Save references in `traders[id]` and `trades[msg.sender]`.
 
 **What It Does Not Do:**
 
-- It doesn’t actually create or match an ask order.
-- No partial or full fill logic is implemented.
-- No enqueuing to `asks` is done.
+- Similar to `__placeBid`, it does **not** handle matching across multiple price levels.
+- A partially filled bid remains in the queue (with its now-updated `remaining`), unless it becomes `CANCELLED` or fully filled later.
 
 ---
 
@@ -267,7 +309,7 @@ At present, it always reverts as “Unsupported.” The matching logic for an as
 
 2. **Skipping Canceled Orders**
 
-   - In `__placeBid`, you explicitly skip canceled orders that appear at the front of `level.asks` by calling `dequeue()` and continuing.
+   - In `__placeBid` and `__placeAsk`, you explicitly skip canceled orders that appear at the front of the queue by dequeueing them and continuing.
    - This ensures canceled orders do not block new matches.
 
 3. **FIFO Queues**
@@ -277,7 +319,15 @@ At present, it always reverts as “Unsupported.” The matching logic for an as
 
 4. **Price Collision**
 
-   - At present, `__placeBid` only searches for asks in the **same** `trade_.price` level. There is no logic to handle if the best available ask has a price that is **less** than the user’s bid (which would be typical in a real exchange scenario).
+   - At present, both `__placeBid` and `__placeAsk` only look for matches within the **same** `trade_.price` level.
+   - There is no logic to handle cross-price-level matching (e.g., if a new bid has a higher price than the existing best ask).
 
-5. **Incomplete `__placeAsk`**
-   - As of now, the ask side is not implemented. One could replicate the logic from `__placeBid` but invert the token roles and queue usage (`bids` vs. `asks`).
+5. **Fully Operational for Bids and Asks**
+
+   - Both the bid side and the ask side are implemented in a minimal, single-price-level manner.
+   - **Market orders** remain unsupported (the code will revert if a user tries one).
+
+6. **Depth Accounting**
+   - Each price level tracks how much total unfilled quantity is enqueued (`bidDepth`, `askDepth`).
+   - When orders partially or fully fill, these depths are reduced.
+   - When leftover orders remain, they are enqueued and reflected in `bidDepth` or `askDepth`.
