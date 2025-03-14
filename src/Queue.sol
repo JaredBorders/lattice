@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.29;
 
 /// @title minimal FIFO (first-in-first-out) queue implementation
 /// @dev utilizes a mapping-based circular queue

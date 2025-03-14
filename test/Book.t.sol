@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.29;
 
 import {Book} from "../src/Book.sol";
 import {ERC20 as Synth} from "../src/ERC20.sol";
