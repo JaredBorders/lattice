@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
-import {Book} from "../src/Book.sol";
 import {ERC20 as Synth} from "../src/ERC20.sol";
+import {Exchange} from "../src/Exchange.sol";
 import {MockSynth} from "./mocks/MockSynth.sol";
 import {Test} from "@forge-std/Test.sol";
 
-/// @title test suite for the book contract
+/// @title test suite for spot exchange
 /// @author flocast
 /// @author jaredborders
 /// @custom:version v0.0.1
-contract BookTest is Test {
+contract ExchangeTest is Test {
 
-    Book book;
+    Exchange book;
 
     MockSynth numeraire;
     MockSynth index;
@@ -30,7 +30,7 @@ contract BookTest is Test {
         numeraire = new MockSynth("sUSD", "sUSD");
         index = new MockSynth("sETH", "sETH");
 
-        book = new Book(address(numeraire), address(index));
+        book = new Exchange(address(numeraire), address(index));
 
         numeraire.mint(JORDAN, type(uint32).max);
         numeraire.mint(DONNIE, type(uint32).max);
@@ -50,7 +50,9 @@ contract BookTest is Test {
 
 }
 
-contract BidOrderTest is BookTest {
+contract BidOrderTest is ExchangeTest {
+
+    Exchange.Trade private bid;
 
     function test_place_bid(
         uint16 price,
@@ -61,21 +63,22 @@ contract BidOrderTest is BookTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
-        Book.Trade memory bid =
-            Book.Trade(Book.KIND.LIMIT, Book.SIDE.BID, price, quantity);
+        bid = Exchange.Trade(
+            Exchange.KIND.LIMIT, Exchange.SIDE.BID, price, quantity
+        );
         book.place(bid);
     }
 
 }
 
-contract AskOrderTest is BookTest {}
+contract AskOrderTest is ExchangeTest {}
 
-contract PriceLevelTest is BookTest {}
+contract PriceLevelTest is ExchangeTest {}
 
-contract OrderSettlementTest is BookTest {}
+contract OrderSettlementTest is ExchangeTest {}
 
-contract RemoveOrderTest is BookTest {}
+contract RemoveOrderTest is ExchangeTest {}
 
-contract MakerFeeTest is BookTest {}
+contract MakerFeeTest is ExchangeTest {}
 
-contract TakerFeeTest is BookTest {}
+contract TakerFeeTest is ExchangeTest {}

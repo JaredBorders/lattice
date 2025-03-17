@@ -4,10 +4,11 @@ pragma solidity 0.8.29;
 import {ERC20 as Synth} from "./ERC20.sol";
 import {Queue} from "./Queue.sol";
 
-/// @title minimal limit order book logic
+/// @title spot exchange mechanism supporting programmatic liquidity
+/// @dev mechanism utilizes a bid-ask order book to facilitate trades
 /// @author jaredborders
 /// @custom:version v0.0.1
-contract Book {
+contract Exchange {
 
     using Queue for Queue.T;
 
