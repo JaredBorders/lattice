@@ -246,6 +246,36 @@ contract BidOrderTest is MarketTest {
 
 }
 
+contract BidBenchmarkTest is BidOrderTest {
+
+    uint256 private constant BID_GAS_BENCHMARK = 278_611;
+    uint256 private constant GAS_BLOCK_LIMIT = 30_000_000;
+    uint256 private constant MAX_BIDS_PER_BLOCK = 107;
+
+    function test_place_bid_benchmark() public prankster(DONNIE) {
+        /// @custom:market sUSD:sETH Market
+        /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
+        uint256 price = 1_919_470_000_000_000_000_000;
+
+        /// @custom:numeraire quantity or bid size set to price
+        /// @dev 1,919.47e18 sUSD can purchase 1 sETH @ observed price
+        uint256 quantity = 1_919_470_000_000_000_000_000;
+
+        Market.Trade memory bid =
+            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, quantity);
+
+        uint256 gas = gasleft();
+
+        market.place(bid);
+
+        gas = (gas - gasleft()) + GAS_OPCODE_COST;
+
+        assertEq(gas, BID_GAS_BENCHMARK);
+        assertEq(MAX_BIDS_PER_BLOCK, GAS_BLOCK_LIMIT / BID_GAS_BENCHMARK);
+    }
+
+}
+
 contract AskOrderTest is MarketTest {
 
     Market.Trade private ask;
