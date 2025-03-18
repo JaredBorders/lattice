@@ -252,7 +252,7 @@ contract BidBenchmarkTest is BidOrderTest {
     uint256 private constant GAS_BLOCK_LIMIT = 30_000_000;
     uint256 private constant MAX_BIDS_PER_BLOCK = 107;
 
-    function test_place_bid_benchmark() public prankster(DONNIE) {
+    function test_benchmark_place_bid() public prankster(DONNIE) {
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
         uint256 price = 1_919_470_000_000_000_000_000;
