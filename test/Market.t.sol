@@ -2,17 +2,17 @@
 pragma solidity 0.8.29;
 
 import {ERC20 as Synth} from "../src/ERC20.sol";
-import {Exchange} from "../src/Exchange.sol";
+import {Market} from "../src/Market.sol";
 import {MockSynth} from "./mocks/MockSynth.sol";
 import {Test} from "@forge-std/Test.sol";
 
-/// @title test suite for spot exchange
+/// @title test suite for market exchange
 /// @author flocast
 /// @author jaredborders
 /// @custom:version v0.0.1
-contract ExchangeTest is Test {
+contract MarketTest is Test {
 
-    Exchange book;
+    Market market;
 
     MockSynth numeraire;
     MockSynth index;
@@ -30,7 +30,7 @@ contract ExchangeTest is Test {
         numeraire = new MockSynth("sUSD", "sUSD");
         index = new MockSynth("sETH", "sETH");
 
-        book = new Exchange(address(numeraire), address(index));
+        market = new Market(address(numeraire), address(index));
 
         numeraire.mint(JORDAN, type(uint32).max);
         numeraire.mint(DONNIE, type(uint32).max);
@@ -38,21 +38,21 @@ contract ExchangeTest is Test {
         index.mint(DONNIE, type(uint32).max);
 
         vm.startPrank(JORDAN);
-        numeraire.approve(address(book), type(uint256).max);
-        index.approve(address(book), type(uint256).max);
+        numeraire.approve(address(market), type(uint256).max);
+        index.approve(address(market), type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(DONNIE);
-        numeraire.approve(address(book), type(uint256).max);
-        index.approve(address(book), type(uint256).max);
+        numeraire.approve(address(market), type(uint256).max);
+        index.approve(address(market), type(uint256).max);
         vm.stopPrank();
     }
 
 }
 
-contract BidOrderTest is ExchangeTest {
+contract BidOrderTest is MarketTest {
 
-    Exchange.Trade private bid;
+    Market.Trade private bid;
 
     function test_place_bid(
         uint16 price,
@@ -63,22 +63,20 @@ contract BidOrderTest is ExchangeTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
-        bid = Exchange.Trade(
-            Exchange.KIND.LIMIT, Exchange.SIDE.BID, price, quantity
-        );
-        book.place(bid);
+        bid = Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, quantity);
+        market.place(bid);
     }
 
 }
 
-contract AskOrderTest is ExchangeTest {}
+contract AskOrderTest is MarketTest {}
 
-contract PriceLevelTest is ExchangeTest {}
+contract PriceLevelTest is MarketTest {}
 
-contract OrderSettlementTest is ExchangeTest {}
+contract OrderSettlementTest is MarketTest {}
 
-contract RemoveOrderTest is ExchangeTest {}
+contract RemoveOrderTest is MarketTest {}
 
-contract MakerFeeTest is ExchangeTest {}
+contract MakerFeeTest is MarketTest {}
 
-contract TakerFeeTest is ExchangeTest {}
+contract TakerFeeTest is MarketTest {}
