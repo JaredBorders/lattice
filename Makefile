@@ -5,7 +5,7 @@ size 			:; forge build --sizes
 inspect 		:; forge inspect ${contract} storage-layout --pretty
 test 			:; forge test -vv
 traces		 	:; forge test -vvvv
-snap 			:; forge coverage --report lcov; forge snapshot
+snap 			:; forge coverage --no-match-test test_benchmark --report lcov; forge snapshot --no-match-test test_benchmark
 clean 			:; forge clean
 lint 			:; forge fmt
 fmt 			:; forge fmt
