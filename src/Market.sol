@@ -2,35 +2,70 @@
 pragma solidity 0.8.29;
 
 import {ERC20 as Synth} from "./ERC20.sol";
+import {Hook} from "./Hook.sol";
 import {Queue} from "./Queue.sol";
 
-/// @title spot exchange mechanism supporting programmatic liquidity
-/// @dev mechanism utilizes a bid-ask order book to facilitate trades
+/// @title market mechanism supporting programmatic liquidity
+/// @dev mechanism utilizes a bid/ask order book to facilitate trading
 /// @author jaredborders
 /// @custom:version v0.0.1
-contract Exchange {
+contract Market {
 
+    /// @notice fifo queue library for bid/ask orders
+    /// @dev enforces price-time priority in tandem with price levels
     using Queue for Queue.T;
 
+    /*//////////////////////////////////////////////////////////////
+                             MARKET TOKENS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice asset in which bids are denominated
+    /// @dev exchange price levels are denominated in numeraire; i.e.,
+    /// settlement asset
     Synth immutable numeraire;
+
+    /// @notice asset in which asks are denominated
+    /// @dev price level is denominated in index; i.e., speculative asset
     Synth immutable index;
 
+    /*//////////////////////////////////////////////////////////////
+                          MARKET ENUMERATIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice enumeration of supported order types
+    /// @custom:MARKET indicates order to be filled at best available price
+    /// @custom:LIMIT indicates order to be filled at specified price
     enum KIND {
         MARKET,
         LIMIT
     }
 
+    /// @notice enumeration of possible order sides
+    /// @custom:BID indicates intent to exchange index for numeraire
+    /// @custom:ASK indicates intent to exchange numeraire for index
     enum SIDE {
         BID,
         ASK
     }
 
+    /// @notice enumeration of possible trader classifications
+    /// @dev serves additional context if trader prefers maker/taker status
+    /// @custom:ANY indicates the classification is irrelevant
+    /// @custom:MAKER indicates order placed by trader adds book liquidity
+    /// @custom:TAKER indicates order placed by trader removes book liquidity
     enum PARTICIPANT {
         ANY,
         MAKER,
         TAKER
     }
 
+    /// @notice enumeration of possible order statuses
+    /// @dev only OPEN and PARTIAL orders are eligible for matching
+    /// @custom:NULL indicates order has not been placed
+    /// @custom:OPEN indicates order has been placed and awaiting matching
+    /// @custom:PARTIAL indicates order has been partially filled
+    /// @custom:FILLED indicates order has been completely filled
+    /// @custom:CANCELLED indicates order has been removed from the book
     enum STATUS {
         NULL,
         OPEN,
@@ -39,6 +74,16 @@ contract Exchange {
         CANCELLED
     }
 
+    /*//////////////////////////////////////////////////////////////
+                           MARKET STRUCTURES
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice defines the structure of a trade
+    /// @dev side of trade indicates denomination of quantity
+    /// @custom:KIND indicates the type of order to be placed
+    /// @custom:SIDE indicates the direction of the order to be placed
+    /// @custom:price indicates the price level at which the order is placed
+    /// @custom:quantity indicates the intended amount of tokens to be exchanged
     struct Trade {
         KIND kind;
         SIDE side;
@@ -46,8 +91,22 @@ contract Exchange {
         uint256 quantity;
     }
 
+    /// @notice defines the structure of an order recorded by the book
+    /// @dev status of order indicates eligibility for matching
+    /// @dev kind of order indicates how the order is to be filled
+    /// @dev side of order indicates the direction of the order
+    /// @custom:id unique identifier assigned to each order
+    /// @custom:blocknumber at which order was placed
+    /// @custom:trader address of the trader responsible for the order
+    /// @custom:status indicates the current state of the order
+    /// @custom:kind indicates the type of order to be placed
+    /// @custom:side indicates the direction of the order to be placed
+    /// @custom:price indicates the price level at which the order is placed
+    /// @custom:quantity indicates the intended amount of tokens to be exchanged
+    /// @custom:remaining indicates the amount of tokens yet to be exchanged
     struct Order {
         uint256 id;
+        uint256 blocknumber;
         address trader;
         STATUS status;
         KIND kind;
@@ -57,6 +116,13 @@ contract Exchange {
         uint256 remaining;
     }
 
+    /// @notice defines the structure of a price level in the order book
+    /// @dev bidDepth is measured in numeraire tokens at the price level
+    /// @dev askDepth is measured in index tokens at the price level
+    /// @custom:bidDepth indicates total open bid interest at price level
+    /// @custom:askDepth indicates total open ask interest at price level
+    /// @custom:bids queue records bids eligible for matching at price level
+    /// @custom:asks queue records asks eligible for matching at price level
     struct Level {
         uint256 bidDepth;
         uint256 askDepth;
@@ -64,21 +130,55 @@ contract Exchange {
         Queue.T asks;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                               BOOK STATE
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice maps id assigned to order to the order itself
+    /// @dev order id is unique and incremented for each new order
+    /// @dev records all orders, regardless of status, for reference
+    mapping(uint256 id => Order) internal orders;
+
+    /// @notice maps price to price level in the order book
+    /// @dev price level is unique and precise to 18 decimal places
+    mapping(uint256 price => Level) internal levels;
+
+    /// @notice maps id assigned to order to trader responsible for order
+    /// @dev allows for quick lookup of trader by order id
+    mapping(uint256 id => address trader) internal traders;
+
+    /// @notice maps trader to their entire order history
+    /// @dev allows for quick lookup of all orders placed by trader
+    /// @dev records all orders, regardless of status, for reference
+    mapping(address trader => uint256[] ids) internal history;
+
     /// @notice unique identifier for each order
     /// @dev incremented for each new order
     /// @custom:cid acronym for "current identifier"
     uint256 private cid;
 
-    mapping(uint256 id => Order) internal orders;
-    mapping(uint256 price => Level) internal levels;
-    mapping(uint256 id => address trader) internal traders;
-    mapping(address trader => uint256[] ids) internal trades;
+    /*//////////////////////////////////////////////////////////////
+                              CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
 
+    /// @notice creates market and defines the numeraire and index tokens
+    /// @param numeraire_ address of the numeraire token
+    /// @param index_ address of the index token
     constructor(address numeraire_, address index_) {
         numeraire = Synth(numeraire_);
         index = Synth(index_);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                             INTROSPECTION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice get bid and ask depth at a specific price level
+    /// @dev bid depth is measured in numeraire tokens
+    /// @dev ask depth is measured in index tokens
+    /// @param price_ level at which depth is queried
+    /// @return bids indicating total open bid interest at price level
+    /// @return asks indicating total open ask interest at price level
     function depth(uint256 price_)
         public
         view
@@ -88,6 +188,14 @@ contract Exchange {
         return (level.bidDepth, level.askDepth);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                                TRADING
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice place a trade on the order book
+    /// @dev sufficient market token allowances expected
+    /// @dev trade object is recorded within order book as an order
+    /// @param trade_ defining the trade to be placed
     function place(Trade calldata trade_) public {
         if (trade_.quantity == 0) revert("Invalid quantity");
         if (trade_.price == 0) revert("Invalid price");
@@ -109,6 +217,10 @@ contract Exchange {
         }
     }
 
+    /// @notice remove an order from the order book by id
+    /// @dev only order owner can remove order
+    /// @dev order must not be filled or cancelled
+    /// @param id_ unique identifier assigned to order
     function remove(uint256 id_) public {
         require(traders[id_] == msg.sender, "Not order owner");
         require(orders[id_].status != STATUS.FILLED, "Order filled");
@@ -141,17 +253,14 @@ contract Exchange {
         }
     }
 
-    // while there are asks at this price level,
-    // fill the bid order with the ask order(s)
-    // until the bid order is filled.
-    //
-    // if bid order was filled partially, update the bid order's
-    // remaining quantity and enqueue bid order at this price level.
-    //
-    // if bid order was filled completely, update the bid order's
-    // status to FILLED and do not enqueue bid order at this price level.
-    //
-    // if there are no asks at this price level, enqueue bid order.
+    /*//////////////////////////////////////////////////////////////
+                              LIMIT ORDERS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice place a bid limit order on the order book
+    /// @dev bid order is filled with available asks at price level
+    /// @param trade_ defining the bid order to be placed
+    /// @return id or unique identifier assigned to bid order placed
     function __placeBid(Trade calldata trade_) private returns (uint256 id) {
         /// @dev immediately transfer numeraire tokens to contract
         numeraire.transferFrom(msg.sender, address(this), trade_.quantity);
@@ -167,6 +276,7 @@ contract Exchange {
         /// @dev initially, remaining quantity is equal to total quantity
         Order memory bid = Order({
             id: id,
+            blocknumber: block.number,
             trader: msg.sender,
             status: STATUS.OPEN,
             kind: trade_.kind,
@@ -268,9 +378,13 @@ contract Exchange {
         traders[id] = msg.sender;
 
         // add order id to the history of trades made by trader
-        trades[msg.sender].push(id);
+        history[msg.sender].push(id);
     }
 
+    /// @notice place an ask limit order on the order book
+    /// @dev ask order is filled with available bids at price level
+    /// @param trade_ defining the ask order to be placed
+    /// @return id or unique identifier assigned to ask order placed
     function __placeAsk(Trade calldata trade_) private returns (uint256 id) {
         /// @dev immediately transfer index tokens to contract
         index.transferFrom(msg.sender, address(this), trade_.quantity);
@@ -286,6 +400,7 @@ contract Exchange {
         /// @dev initially, remaining quantity is equal to total quantity
         Order memory ask = Order({
             id: id,
+            blocknumber: block.number,
             trader: msg.sender,
             status: STATUS.OPEN,
             kind: trade_.kind,
@@ -389,7 +504,7 @@ contract Exchange {
         traders[id] = msg.sender;
 
         // add order id to the history of trades made by trader
-        trades[msg.sender].push(id);
+        history[msg.sender].push(id);
     }
 
 }

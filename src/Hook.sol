@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
-import {Exchange} from "./Exchange.sol";
+import {Market} from "./Market.sol";
 
 /// @title programmatic liquidity hook
 /// @dev specifies logic executed pre/post liquidity event
@@ -18,25 +18,25 @@ library Hook {
     }
 
     /// @notice operation to be executed
-    /// @custom:method identifing the exchange operation to be executed
-    /// @custom:parameters expected by the specified exchange operation
+    /// @custom:method identifing the market operation to be executed
+    /// @custom:parameters expected by the specified market operation
     struct Operation {
         METHOD method;
         bytes parameters;
     }
 
-    /// @notice dispatches the operation to the exchange
-    /// @dev reentrancy considerations expected to be handled by the exchange
-    /// @param exchange_ upon which the operation is executed
+    /// @notice dispatches the operation to the market
+    /// @dev reentrancy considerations expected to be handled by the market
+    /// @param market_ upon which the operation is executed
     /// @param op_ defining the operation to be executed
-    function _dispatch(Exchange exchange_, Operation memory op_) internal {
+    function _dispatch(Market market_, Operation memory op_) internal {
         if (op_.method == METHOD.PLACE) {
-            exchange_.place(abi.decode(op_.parameters, (Exchange.Trade)));
+            market_.place(abi.decode(op_.parameters, (Market.Trade)));
             return;
         }
 
         if (op_.method == METHOD.REMOVE) {
-            exchange_.remove(abi.decode(op_.parameters, (uint256)));
+            market_.remove(abi.decode(op_.parameters, (uint256)));
             return;
         }
     }
