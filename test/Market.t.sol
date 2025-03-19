@@ -457,6 +457,36 @@ contract AskOrderTest is MarketTest {
 
 }
 
+contract AskBenchmarkTest is AskOrderTest {
+
+    uint256 private constant ASK_GAS_BENCHMARK = 278_647;
+    uint256 private constant GAS_BLOCK_LIMIT = 30_000_000;
+    uint256 private constant MAX_ASKS_PER_BLOCK = 107;
+
+    function test_benchmark_place_ask() public prankster(DONNIE) {
+        /// @custom:market sUSD:sETH Market
+        /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
+        uint256 price = 1_919_470_000_000_000_000_000;
+
+        /// @custom:index quantity or ask size set to price
+        /// @dev 1 sETH can be sold for 1,919.47e18 sUSD @ observed price
+        uint256 quantity = 1_919_470_000_000_000_000_000;
+
+        Market.Trade memory ask =
+            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
+
+        uint256 gas = gasleft();
+
+        market.place(ask);
+
+        gas = (gas - gasleft()) + GAS_OPCODE_COST;
+
+        assertEq(gas, ASK_GAS_BENCHMARK);
+        assertEq(MAX_ASKS_PER_BLOCK, GAS_BLOCK_LIMIT / ASK_GAS_BENCHMARK);
+    }
+
+}
+
 contract PriceLevelTest is MarketTest {}
 
 contract OrderSettlementTest is MarketTest {
