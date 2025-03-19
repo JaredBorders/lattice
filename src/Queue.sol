@@ -57,6 +57,26 @@ library Queue {
         return queue_.front == queue_.back;
     }
 
+    /// @notice creates a set from the elements in the queue
+    /// @dev method can be expensive for large queues
+    /// @param queue_ from which to create the set
+    /// @return set of elements in the queue
+    function toArray(T storage queue_)
+        external
+        view
+        returns (uint256[] memory set)
+    {
+        uint256 start = queue_.front;
+        uint256 end = queue_.back;
+
+        set = new uint256[](end - start);
+
+        uint256 j = 0;
+        while (start < end) {
+            set[j++] = queue_.data[start++];
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////
                                OPERATIONS
     //////////////////////////////////////////////////////////////*/
