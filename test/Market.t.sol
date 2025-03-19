@@ -77,11 +77,11 @@ contract BidOrderTest is MarketTest {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
 
-        // record initial token balances
+        // observe initial token balances
         uint256 preTraderBalance = numeraire.balanceOf(JORDAN);
         uint256 preMarketBalance = numeraire.balanceOf(address(market));
 
-        // record initial book depth
+        // observe initial book depth
         (uint256 preBidDepth, uint256 preAskDepth) = market.depth(price);
 
         // define and place a bid in the market
@@ -278,8 +278,6 @@ contract BidBenchmarkTest is BidOrderTest {
 
 contract AskOrderTest is MarketTest {
 
-    Market.Trade private ask;
-
     function test_place_ask(
         uint16 price,
         uint16 quantity
@@ -290,67 +288,171 @@ contract AskOrderTest is MarketTest {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
 
-        // Record initial balances
-        uint256 initialUserBalance = index.balanceOf(JORDAN);
-        uint256 initialMarketBalance = index.balanceOf(address(market));
+        // observe initial token balances
+        uint256 preTraderBalance = index.balanceOf(JORDAN);
+        uint256 preMarketBalance = index.balanceOf(address(market));
 
-        // Place an ask
-        ask = Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
-        market.place(ask);
+        // observe initial book depth
+        (uint256 preBidDepth, uint256 preAskDepth) = market.depth(price);
 
-        // Verify the order was placed correctly
-        (uint256 bidDepth, uint256 askDepth) = market.depth(price);
-        assertEq(bidDepth, 0);
-        assertEq(askDepth, quantity);
-
-        // Verify trader funds were transferred
-        assertEq(index.balanceOf(JORDAN), initialUserBalance - quantity);
-        assertEq(
-            index.balanceOf(address(market)), initialMarketBalance + quantity
+        // define and place an ask in the market
+        market.place(
+            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity)
         );
+
+        // observe token balances following the trade
+        uint256 postTraderBalance = index.balanceOf(JORDAN);
+        uint256 postMarketBalance = index.balanceOf(address(market));
+
+        // observe book depth following the trade
+        (uint256 postBidDepth, uint256 postAskDepth) = market.depth(price);
+
+        // verify token balances were correctly adjusted
+        assertEq(postTraderBalance, preTraderBalance - quantity);
+        assertEq(postMarketBalance, preMarketBalance + quantity);
+
+        // verify book depth was correctly adjusted
+        assertEq(postBidDepth, preBidDepth);
+        assertEq(postAskDepth, preAskDepth + quantity);
     }
 
-    function test_place_ask_zero_quantity() public prankster(JORDAN) {
-        uint16 price = 1000;
-        uint16 quantity = 0;
-
-        ask = Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
-        vm.expectRevert("Invalid quantity");
-        market.place(ask);
-    }
-
-    function test_place_ask_zero_price() public prankster(JORDAN) {
-        uint16 price = 0;
-        uint16 quantity = 1000;
-
-        ask = Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
-        vm.expectRevert("Invalid price");
-        market.place(ask);
-    }
-
-    function test_place_multiple_asks(
+    function test_place_bids(
         uint16 price,
-        uint16 quantity1,
-        uint16 quantity2
+        uint16 quantity,
+        uint8 trades
     )
         public
         prankster(JORDAN)
     {
         vm.assume(price != 0);
-        vm.assume(quantity1 != 0);
-        vm.assume(quantity2 != 0);
+        vm.assume(quantity != 0);
+        vm.assume(trades != 0);
 
-        // Place first ask
-        ask = Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity1);
-        market.place(ask);
+        // observe initial token balances
+        uint256 preTraderBalance = index.balanceOf(JORDAN);
+        uint256 preMarketBalance = index.balanceOf(address(market));
 
-        // Place second ask at same price
-        ask = Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity2);
-        market.place(ask);
+        // observe initial book depth
+        (uint256 preBidDepth, uint256 preAskDepth) = market.depth(price);
 
-        // Verify depth is updated correctly
-        (, uint256 askDepth) = market.depth(price);
-        assertEq(askDepth, uint256(quantity1) + uint256(quantity2));
+        // place trade(s); each trade has no variance
+        for (uint8 i = 0; i < trades; i++) {
+            market.place(
+                Market.Trade(
+                    Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity
+                )
+            );
+        }
+
+        // observe token balances following the trade(s)
+        uint256 postTraderBalance = index.balanceOf(JORDAN);
+        uint256 postMarketBalance = index.balanceOf(address(market));
+
+        // observe book depth following the trade(s)
+        (uint256 postBidDepth, uint256 postAskDepth) = market.depth(price);
+
+        // verify token balances were correctly adjusted
+        assertEq(
+            postTraderBalance,
+            preTraderBalance - (uint256(quantity) * uint256(trades))
+        );
+        assertEq(
+            postMarketBalance,
+            preMarketBalance + (uint256(quantity) * uint256(trades))
+        );
+
+        // verify book depth was correctly adjusted
+        assertEq(postBidDepth, preBidDepth);
+        assertEq(
+            postAskDepth, preAskDepth + (uint256(quantity) * uint256(trades))
+        );
+    }
+
+    function test_place_bids_trade_variance(
+        uint16 price,
+        uint16 quantity,
+        uint8 trades,
+        uint8 variance
+    )
+        public
+        prankster(DONNIE)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity != 0);
+        vm.assume(trades != 0);
+        vm.assume(variance != 0);
+
+        // cast to uint256 to avoid overflow from variance arithmetic
+        uint256 variedPrice = price;
+        uint256 variedQuantity = quantity;
+
+        // place trade(s); each trade has variance
+        for (uint8 i = 0; i < trades; i++) {
+            // observe initial token balances
+            uint256 preTraderBalance = index.balanceOf(DONNIE);
+            uint256 preMarketBalance = index.balanceOf(address(market));
+
+            // observe initial book depth
+            (uint256 preBidDepth, uint256 preAskDepth) =
+                market.depth(variedPrice);
+
+            market.place(
+                Market.Trade(
+                    Market.KIND.LIMIT,
+                    Market.SIDE.ASK,
+                    variedPrice,
+                    variedQuantity
+                )
+            );
+
+            // observe token balances following the trade
+            uint256 postTraderBalance = index.balanceOf(DONNIE);
+            uint256 postMarketBalance = index.balanceOf(address(market));
+
+            // observe book depth following the trade @ varied price
+            (uint256 postBidDepth, uint256 postAskDepth) =
+                market.depth(variedPrice);
+
+            // verify token balances were correctly adjusted
+            assertEq(postTraderBalance, preTraderBalance - variedQuantity);
+            assertEq(postMarketBalance, preMarketBalance + variedQuantity);
+
+            // verify book depth was correctly adjusted
+            assertEq(postBidDepth, preBidDepth);
+            assertEq(postAskDepth, preAskDepth + variedQuantity);
+
+            // add variance to the price
+            variedPrice += variance;
+
+            // add variance to the quantity
+            variedQuantity += variance;
+        }
+    }
+
+    function test_place_bid_zero_quantity(uint16 price)
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        uint16 quantity = 0;
+
+        vm.expectRevert("Invalid quantity");
+        market.place(
+            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity)
+        );
+    }
+
+    function test_place_bid_zero_price(uint16 quantity)
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(quantity != 0);
+        uint16 price = 0;
+
+        vm.expectRevert("Invalid price");
+        market.place(
+            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity)
+        );
     }
 
 }
