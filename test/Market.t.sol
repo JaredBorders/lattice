@@ -534,6 +534,55 @@ contract PriceLevelTest is MarketTest {
 
 contract OrderSettlementTest is MarketTest {
 
+    function test_match(
+        uint16 price,
+        uint32 bidQuantity,
+        uint32 askQuantity
+    )
+        public
+    {
+        vm.assume(price != 0);
+        vm.assume(bidQuantity != 0);
+        vm.assume(askQuantity != 0);
+
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, bidQuantity)
+        );
+
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, askQuantity)
+        );
+
+        (uint256 bidDepth, uint256 askDepth) = market.depth(price);
+        uint256[] memory bids = market.bids(price);
+        uint256[] memory asks = market.asks(price);
+
+        uint256 bidQuantityU256 = uint256(bidQuantity);
+        uint256 askQuantityU256 = uint256(askQuantity);
+        uint256 priceU256 = uint256(price);
+
+        if (askQuantityU256 * priceU256 == bidQuantityU256) {
+            assertEq(bidDepth, 0);
+            assertEq(askDepth, 0);
+            assertEq(bids.length, 0);
+            assertEq(asks.length, 0);
+        } else if (askQuantityU256 * priceU256 > bidQuantityU256) {
+            assertEq(bidDepth, 0);
+            assertEq(
+                askDepth, (askQuantityU256 - (bidQuantityU256 / priceU256))
+            );
+            assertEq(bids.length, 0);
+            assertEq(asks.length, 1);
+        } else {
+            assertEq(bidDepth, bidQuantityU256 - (askQuantityU256 * priceU256));
+            assertEq(askDepth, 0);
+            assertEq(bids.length, 1);
+            assertEq(asks.length, 0);
+        }
+    }
+
     function test_bid_filled_by_ask(uint16 price, uint16 quantity) public {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
