@@ -41,6 +41,15 @@ contract QueueTest is Test {
         x == 0 ? assertTrue(empty) : assertFalse(empty);
     }
 
+    function test_queue_toArray(uint8 x) public {
+        _enqueue(x);
+        uint256[] memory arr = queue.toArray();
+        assertEq(arr.length, x);
+        for (uint256 i = 0; i < x; i++) {
+            assertEq(arr[i], i + 1);
+        }
+    }
+
     function test_queue_enqueue(uint8 x) public {
         vm.assume(x > 0);
         _enqueue(x);
