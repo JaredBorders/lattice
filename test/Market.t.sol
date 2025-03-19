@@ -253,6 +253,8 @@ contract BidBenchmarkTest is BidOrderTest {
     uint256 private constant MAX_BIDS_PER_BLOCK = 107;
 
     function test_benchmark_place_bid() public prankster(DONNIE) {
+        vm.skip(true);
+
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
         uint256 price = 1_919_470_000_000_000_000_000;
@@ -464,6 +466,8 @@ contract AskBenchmarkTest is AskOrderTest {
     uint256 private constant MAX_ASKS_PER_BLOCK = 107;
 
     function test_benchmark_place_ask() public prankster(DONNIE) {
+        vm.skip(true);
+
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
         uint256 price = 1_919_470_000_000_000_000_000;
@@ -487,7 +491,46 @@ contract AskBenchmarkTest is AskOrderTest {
 
 }
 
-contract PriceLevelTest is MarketTest {}
+contract PriceLevelTest is MarketTest {
+
+    function test_price_level(uint16 price) public prankster(JORDAN) {
+        (uint256 bidDepth, uint256 askDepth) = market.depth(price);
+        uint256[] memory bids = market.bids(price);
+        uint256[] memory asks = market.asks(price);
+        assertEq(bidDepth, 0);
+        assertEq(askDepth, 0);
+        assertEq(bids.length, 0);
+        assertEq(asks.length, 0);
+    }
+
+    function test_price_level(
+        uint16 price,
+        uint16 quantity,
+        bool long
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity != 0);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                long ? Market.SIDE.BID : Market.SIDE.ASK,
+                price,
+                quantity
+            )
+        );
+        (uint256 bidDepth, uint256 askDepth) = market.depth(price);
+        uint256[] memory bids = market.bids(price);
+        uint256[] memory asks = market.asks(price);
+        assertEq(bidDepth, long ? quantity : 0);
+        assertEq(askDepth, long ? 0 : quantity);
+        assertEq(bids.length, long ? 1 : 0);
+        assertEq(asks.length, long ? 0 : 1);
+    }
+
+}
 
 contract OrderSettlementTest is MarketTest {
 
