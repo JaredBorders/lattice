@@ -177,15 +177,39 @@ contract Market {
     /// @dev bid depth is measured in numeraire tokens
     /// @dev ask depth is measured in index tokens
     /// @param price_ level at which depth is queried
-    /// @return bids indicating total open bid interest at price level
-    /// @return asks indicating total open ask interest at price level
+    /// @return bidDepth indicating open bid interest at price level
+    /// @return askDepth indicating open ask interest at price level
     function depth(uint256 price_)
         public
         view
-        returns (uint256 bids, uint256 asks)
+        returns (uint256 bidDepth, uint256 askDepth)
     {
         Level storage level = levels[price_];
-        return (level.bidDepth, level.askDepth);
+        bidDepth = level.bidDepth;
+        askDepth = level.askDepth;
+    }
+
+    /// @notice get set of bid order ids at a specific price level
+    /// @param price_ level at which bids are queried
+    /// @return set of bid order ids at price level
+    function bids(uint256 price_) public view returns (uint256[] memory set) {
+        Level storage level = levels[price_];
+        set = level.bids.toArray();
+    }
+
+    /// @notice get set of ask order ids at a specific price level
+    /// @param price_ level at which asks are queried
+    /// @return set of ask order ids at price level
+    function asks(uint256 price_) public view returns (uint256[] memory set) {
+        Level storage level = levels[price_];
+        set = level.asks.toArray();
+    }
+
+    /// @notice get order by id
+    /// @param id_ unique identifier assigned to order
+    /// @return order object associated with id
+    function getOrder(uint256 id_) public view returns (Order memory) {
+        return orders[id_];
     }
 
     /*//////////////////////////////////////////////////////////////
