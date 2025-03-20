@@ -82,11 +82,17 @@ contract BidOrderTest is MarketTest {
         uint256 preMarketBalance = numeraire.balanceOf(address(market));
 
         // observe initial book depth
-        (uint256 preBidDepth, uint256 preAskDepth) = market.depth(price);
+        (uint256 preBidDepth, uint256 preAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // define and place a bid in the market
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, quantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                quantity
+            )
         );
 
         // observe token balances following the trade
@@ -94,7 +100,8 @@ contract BidOrderTest is MarketTest {
         uint256 postMarketBalance = numeraire.balanceOf(address(market));
 
         // observe book depth following the trade
-        (uint256 postBidDepth, uint256 postAskDepth) = market.depth(price);
+        (uint256 postBidDepth, uint256 postAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // verify token balances were correctly adjusted
         assertEq(postTraderBalance, preTraderBalance - quantity);
@@ -122,13 +129,17 @@ contract BidOrderTest is MarketTest {
         uint256 preMarketBalance = numeraire.balanceOf(address(market));
 
         // observe initial book depth
-        (uint256 preBidDepth, uint256 preAskDepth) = market.depth(price);
+        (uint256 preBidDepth, uint256 preAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // place trade(s); each trade has no variance
         for (uint8 i = 0; i < trades; i++) {
             market.place(
                 Market.Trade(
-                    Market.KIND.LIMIT, Market.SIDE.BID, price, quantity
+                    Market.KIND.LIMIT,
+                    Market.SIDE.BID,
+                    Market.Price.wrap(price),
+                    quantity
                 )
             );
         }
@@ -138,7 +149,8 @@ contract BidOrderTest is MarketTest {
         uint256 postMarketBalance = numeraire.balanceOf(address(market));
 
         // observe book depth following the trade(s)
-        (uint256 postBidDepth, uint256 postAskDepth) = market.depth(price);
+        (uint256 postBidDepth, uint256 postAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // verify token balances were correctly adjusted
         assertEq(
@@ -183,13 +195,13 @@ contract BidOrderTest is MarketTest {
 
             // observe initial book depth
             (uint256 preBidDepth, uint256 preAskDepth) =
-                market.depth(variedPrice);
+                market.depth(Market.Price.wrap(variedPrice));
 
             market.place(
                 Market.Trade(
                     Market.KIND.LIMIT,
                     Market.SIDE.BID,
-                    variedPrice,
+                    Market.Price.wrap(variedPrice),
                     variedQuantity
                 )
             );
@@ -200,7 +212,7 @@ contract BidOrderTest is MarketTest {
 
             // observe book depth following the trade @ varied price
             (uint256 postBidDepth, uint256 postAskDepth) =
-                market.depth(variedPrice);
+                market.depth(Market.Price.wrap(variedPrice));
 
             // verify token balances were correctly adjusted
             assertEq(postTraderBalance, preTraderBalance - variedQuantity);
@@ -225,9 +237,14 @@ contract BidOrderTest is MarketTest {
         vm.assume(price != 0);
         uint16 quantity = 0;
 
-        vm.expectRevert("Invalid quantity");
+        vm.expectRevert(abi.encodeWithSelector(Market.InvalidQuantity.selector));
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, quantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                quantity
+            )
         );
     }
 
@@ -238,9 +255,14 @@ contract BidOrderTest is MarketTest {
         vm.assume(quantity != 0);
         uint16 price = 0;
 
-        vm.expectRevert("Invalid price");
+        vm.expectRevert(abi.encodeWithSelector(Market.InvalidPrice.selector));
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, quantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                quantity
+            )
         );
     }
 
@@ -263,8 +285,12 @@ contract BidBenchmarkTest is BidOrderTest {
         /// @dev 1,919.47e18 sUSD can purchase 1 sETH @ observed price
         uint256 quantity = 1_919_470_000_000_000_000_000;
 
-        Market.Trade memory bid =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, quantity);
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
 
         uint256 gas = gasleft();
 
@@ -295,11 +321,17 @@ contract AskOrderTest is MarketTest {
         uint256 preMarketBalance = index.balanceOf(address(market));
 
         // observe initial book depth
-        (uint256 preBidDepth, uint256 preAskDepth) = market.depth(price);
+        (uint256 preBidDepth, uint256 preAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // define and place an ask in the market
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                quantity
+            )
         );
 
         // observe token balances following the trade
@@ -307,7 +339,8 @@ contract AskOrderTest is MarketTest {
         uint256 postMarketBalance = index.balanceOf(address(market));
 
         // observe book depth following the trade
-        (uint256 postBidDepth, uint256 postAskDepth) = market.depth(price);
+        (uint256 postBidDepth, uint256 postAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // verify token balances were correctly adjusted
         assertEq(postTraderBalance, preTraderBalance - quantity);
@@ -335,13 +368,17 @@ contract AskOrderTest is MarketTest {
         uint256 preMarketBalance = index.balanceOf(address(market));
 
         // observe initial book depth
-        (uint256 preBidDepth, uint256 preAskDepth) = market.depth(price);
+        (uint256 preBidDepth, uint256 preAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // place trade(s); each trade has no variance
         for (uint8 i = 0; i < trades; i++) {
             market.place(
                 Market.Trade(
-                    Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity
+                    Market.KIND.LIMIT,
+                    Market.SIDE.ASK,
+                    Market.Price.wrap(price),
+                    quantity
                 )
             );
         }
@@ -351,7 +388,8 @@ contract AskOrderTest is MarketTest {
         uint256 postMarketBalance = index.balanceOf(address(market));
 
         // observe book depth following the trade(s)
-        (uint256 postBidDepth, uint256 postAskDepth) = market.depth(price);
+        (uint256 postBidDepth, uint256 postAskDepth) =
+            market.depth(Market.Price.wrap(price));
 
         // verify token balances were correctly adjusted
         assertEq(
@@ -396,13 +434,13 @@ contract AskOrderTest is MarketTest {
 
             // observe initial book depth
             (uint256 preBidDepth, uint256 preAskDepth) =
-                market.depth(variedPrice);
+                market.depth(Market.Price.wrap(variedPrice));
 
             market.place(
                 Market.Trade(
                     Market.KIND.LIMIT,
                     Market.SIDE.ASK,
-                    variedPrice,
+                    Market.Price.wrap(variedPrice),
                     variedQuantity
                 )
             );
@@ -413,7 +451,7 @@ contract AskOrderTest is MarketTest {
 
             // observe book depth following the trade @ varied price
             (uint256 postBidDepth, uint256 postAskDepth) =
-                market.depth(variedPrice);
+                market.depth(Market.Price.wrap(variedPrice));
 
             // verify token balances were correctly adjusted
             assertEq(postTraderBalance, preTraderBalance - variedQuantity);
@@ -438,9 +476,14 @@ contract AskOrderTest is MarketTest {
         vm.assume(price != 0);
         uint16 quantity = 0;
 
-        vm.expectRevert("Invalid quantity");
+        vm.expectRevert(abi.encodeWithSelector(Market.InvalidQuantity.selector));
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                quantity
+            )
         );
     }
 
@@ -451,9 +494,14 @@ contract AskOrderTest is MarketTest {
         vm.assume(quantity != 0);
         uint16 price = 0;
 
-        vm.expectRevert("Invalid price");
+        vm.expectRevert(abi.encodeWithSelector(Market.InvalidPrice.selector));
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                quantity
+            )
         );
     }
 
@@ -476,8 +524,12 @@ contract AskBenchmarkTest is AskOrderTest {
         /// @dev 1 sETH can be sold for 1,919.47e18 sUSD @ observed price
         uint256 quantity = 1_919_470_000_000_000_000_000;
 
-        Market.Trade memory ask =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
 
         uint256 gas = gasleft();
 
@@ -494,9 +546,10 @@ contract AskBenchmarkTest is AskOrderTest {
 contract PriceLevelTest is MarketTest {
 
     function test_price_level(uint16 price) public prankster(JORDAN) {
-        (uint256 bidDepth, uint256 askDepth) = market.depth(price);
-        uint256[] memory bids = market.bids(price);
-        uint256[] memory asks = market.asks(price);
+        (uint256 bidDepth, uint256 askDepth) =
+            market.depth(Market.Price.wrap(price));
+        uint256[] memory bids = market.bids(Market.Price.wrap(price));
+        uint256[] memory asks = market.asks(Market.Price.wrap(price));
         assertEq(bidDepth, 0);
         assertEq(askDepth, 0);
         assertEq(bids.length, 0);
@@ -517,13 +570,14 @@ contract PriceLevelTest is MarketTest {
             Market.Trade(
                 Market.KIND.LIMIT,
                 long ? Market.SIDE.BID : Market.SIDE.ASK,
-                price,
+                Market.Price.wrap(price),
                 quantity
             )
         );
-        (uint256 bidDepth, uint256 askDepth) = market.depth(price);
-        uint256[] memory bids = market.bids(price);
-        uint256[] memory asks = market.asks(price);
+        (uint256 bidDepth, uint256 askDepth) =
+            market.depth(Market.Price.wrap(price));
+        uint256[] memory bids = market.bids(Market.Price.wrap(price));
+        uint256[] memory asks = market.asks(Market.Price.wrap(price));
         assertEq(bidDepth, long ? quantity : 0);
         assertEq(askDepth, long ? 0 : quantity);
         assertEq(bids.length, long ? 1 : 0);
@@ -547,17 +601,28 @@ contract OrderSettlementTest is MarketTest {
 
         vm.prank(JORDAN);
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, bidQuantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                bidQuantity
+            )
         );
 
         vm.prank(DONNIE);
         market.place(
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, askQuantity)
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                askQuantity
+            )
         );
 
-        (uint256 bidDepth, uint256 askDepth) = market.depth(price);
-        uint256[] memory bids = market.bids(price);
-        uint256[] memory asks = market.asks(price);
+        (uint256 bidDepth, uint256 askDepth) =
+            market.depth(Market.Price.wrap(price));
+        uint256[] memory bids = market.bids(Market.Price.wrap(price));
+        uint256[] memory asks = market.asks(Market.Price.wrap(price));
 
         uint256 bidQuantityU256 = uint256(bidQuantity);
         uint256 askQuantityU256 = uint256(askQuantity);
@@ -590,8 +655,12 @@ contract OrderSettlementTest is MarketTest {
 
         // First place a bid as JORDAN
         uint256 bidQuantity = uint256(price) * uint256(quantity);
-        Market.Trade memory bid =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, bidQuantity);
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            bidQuantity
+        );
 
         uint256 jordanInitialNumeraire = numeraire.balanceOf(JORDAN);
         uint256 jordanInitialIndex = index.balanceOf(JORDAN);
@@ -603,19 +672,23 @@ contract OrderSettlementTest is MarketTest {
 
         // Verify the bid is placed
         uint256 bidDepth;
-        (bidDepth,) = market.depth(price);
+        (bidDepth,) = market.depth(Market.Price.wrap(price));
         assertEq(bidDepth, bidQuantity);
 
         // Now place a matching ask as DONNIE
-        Market.Trade memory ask =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
 
         vm.prank(DONNIE);
         market.place(ask);
 
         // Verify the orders have been matched and settled
         uint256 askDepth;
-        (bidDepth, askDepth) = market.depth(price);
+        (bidDepth, askDepth) = market.depth(Market.Price.wrap(price));
 
         assertEq(bidDepth, 0);
         assertEq(askDepth, 0);
@@ -649,8 +722,12 @@ contract OrderSettlementTest is MarketTest {
         vm.assume(uint256(price) * uint256(quantity) <= type(uint32).max);
 
         // First place an ask as JORDAN
-        Market.Trade memory ask =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
 
         uint256 jordanInitialNumeraire = numeraire.balanceOf(JORDAN);
         uint256 jordanInitialIndex = index.balanceOf(JORDAN);
@@ -662,20 +739,24 @@ contract OrderSettlementTest is MarketTest {
 
         // Verify the ask is placed
         uint256 askDepth;
-        (, askDepth) = market.depth(price);
+        (, askDepth) = market.depth(Market.Price.wrap(price));
         assertEq(askDepth, quantity);
 
         // Now place a matching bid as DONNIE
         uint256 bidQuantity = uint256(price) * uint256(quantity);
-        Market.Trade memory bid =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, bidQuantity);
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            bidQuantity
+        );
 
         vm.prank(DONNIE);
         market.place(bid);
 
         // Verify the orders have been matched and settled
         uint256 bidDepth;
-        (bidDepth, askDepth) = market.depth(price);
+        (bidDepth, askDepth) = market.depth(Market.Price.wrap(price));
 
         assertEq(bidDepth, 0);
         assertEq(askDepth, 0);
@@ -715,7 +796,10 @@ contract OrderSettlementTest is MarketTest {
 
         // Place a large bid
         Market.Trade memory largeBid = Market.Trade(
-            Market.KIND.LIMIT, Market.SIDE.BID, price, largeBidValue
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            largeBidValue
         );
 
         vm.prank(JORDAN);
@@ -723,7 +807,10 @@ contract OrderSettlementTest is MarketTest {
 
         // Place a smaller ask that should partially fill the bid
         Market.Trade memory smallAsk = Market.Trade(
-            Market.KIND.LIMIT, Market.SIDE.ASK, price, smallQuantity
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            smallQuantity
         );
 
         vm.prank(DONNIE);
@@ -732,7 +819,7 @@ contract OrderSettlementTest is MarketTest {
         // Verify that the bid is partially filled
         uint256 bidDepth;
         uint256 askDepth;
-        (bidDepth, askDepth) = market.depth(price);
+        (bidDepth, askDepth) = market.depth(Market.Price.wrap(price));
 
         uint256 expectedRemainingBid = largeBidValue - smallBidValue;
 
@@ -755,8 +842,12 @@ contract RemoveOrderTest is MarketTest {
         vm.assume(quantity != 0);
 
         // Place a bid
-        Market.Trade memory bid =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.BID, price, quantity);
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
 
         uint256 initialUserBalance = numeraire.balanceOf(JORDAN);
         uint256 initialMarketBalance = numeraire.balanceOf(address(market));
@@ -764,14 +855,14 @@ contract RemoveOrderTest is MarketTest {
         market.place(bid);
 
         // Verify bid is placed
-        (uint256 bidDepth,) = market.depth(price);
+        (uint256 bidDepth,) = market.depth(Market.Price.wrap(price));
         assertEq(bidDepth, quantity);
         assertEq(numeraire.balanceOf(JORDAN), initialUserBalance - quantity);
 
         market.remove(0);
 
         // Verify bid is removed
-        (bidDepth,) = market.depth(price);
+        (bidDepth,) = market.depth(Market.Price.wrap(price));
         assertEq(bidDepth, 0);
 
         // Verify funds returned
@@ -790,8 +881,12 @@ contract RemoveOrderTest is MarketTest {
         vm.assume(quantity != 0);
 
         // Place an ask
-        Market.Trade memory ask =
-            Market.Trade(Market.KIND.LIMIT, Market.SIDE.ASK, price, quantity);
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
 
         uint256 initialUserBalance = index.balanceOf(JORDAN);
         uint256 initialMarketBalance = index.balanceOf(address(market));
@@ -799,14 +894,14 @@ contract RemoveOrderTest is MarketTest {
         market.place(ask);
 
         // Verify ask is placed
-        (, uint256 askDepth) = market.depth(price);
+        (, uint256 askDepth) = market.depth(Market.Price.wrap(price));
         assertEq(askDepth, quantity);
         assertEq(index.balanceOf(JORDAN), initialUserBalance - quantity);
 
         market.remove(0);
 
         // Verify ask is removed
-        (, askDepth) = market.depth(price);
+        (, askDepth) = market.depth(Market.Price.wrap(price));
         assertEq(askDepth, 0);
 
         // Verify funds returned
