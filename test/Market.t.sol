@@ -909,6 +909,91 @@ contract RemoveOrderTest is MarketTest {
         assertEq(index.balanceOf(address(market)), initialMarketBalance);
     }
 
+    function test_remove_unauthorized(uint16 price, uint16 quantity) public {
+        vm.assume(price != 0);
+        vm.assume(quantity != 0);
+
+        // Place a bid as JORDAN
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                quantity
+            )
+        );
+
+        // Try to remove it as DONNIE (unauthorized)
+        vm.prank(DONNIE);
+        vm.expectRevert(abi.encodeWithSelector(Market.Unauthorized.selector));
+        market.remove(0);
+    }
+
+    function test_remove_filled_order(uint16 price, uint16 quantity) public {
+        vm.assume(price != 0);
+        vm.assume(quantity != 0);
+        vm.assume(uint256(price) * uint256(quantity) <= type(uint32).max);
+
+        // First place a bid as JORDAN
+        uint256 bidQuantity = uint256(price) * uint256(quantity);
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                bidQuantity
+            )
+        );
+
+        // Now place a matching ask as DONNIE to fill the bid
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                quantity
+            )
+        );
+
+        // Try to remove the filled bid
+        vm.prank(JORDAN);
+        vm.expectRevert(abi.encodeWithSelector(Market.OrderFilled.selector));
+        market.remove(0);
+    }
+
+    function test_remove_cancelled_order(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity != 0);
+
+        // Place a bid as JORDAN
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                quantity
+            )
+        );
+
+        // Cancel it
+        vm.prank(JORDAN);
+        market.remove(0);
+
+        // Try to remove it again
+        vm.prank(JORDAN);
+        vm.expectRevert(abi.encodeWithSelector(Market.OrderCancelled.selector));
+        market.remove(0);
+    }
+
 }
 
 contract MakerFeeTest is MarketTest {}
