@@ -374,8 +374,8 @@ contract Market {
                 // update bid order remaining quantity
                 bid.remaining -= askFilled * p;
 
-                // update bid order status to PARTIAL
-                bid.status = STATUS.PARTIAL;
+                // update bid order status
+                bid.status = bid.remaining == 0 ? STATUS.FILLED : STATUS.PARTIAL;
 
                 /// @custom:settle
                 numeraire.transfer(ask.trader, askFilled * p);
@@ -500,8 +500,8 @@ contract Market {
                 // update ask order remaining quantity
                 ask.remaining -= bidFilled / p;
 
-                // update ask order status to PARTIAL
-                ask.status = STATUS.PARTIAL;
+                // update ask order status
+                ask.status = ask.remaining == 0 ? STATUS.FILLED : STATUS.PARTIAL;
 
                 /// @custom:settle
                 numeraire.transfer(msg.sender, bidFilled);
