@@ -158,6 +158,28 @@ contract Market {
     uint256 private cid;
 
     /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice thrown when an invalid price is provided
+    error InvalidPrice();
+
+    /// @notice thrown when an invalid quantity is provided
+    error InvalidQuantity();
+
+    /// @notice thrown when msg.sender is not the order owner
+    error Unauthorized();
+
+    /// @notice thrown when the order is already filled
+    error OrderFilled();
+
+    /// @notice thrown when the order is already cancelled
+    error OrderCancelled();
+
+    /// @notice thrown when operation is not supported for market orders
+    error MarketOrderUnsupported();
+
+    /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
@@ -221,8 +243,8 @@ contract Market {
     /// @dev trade object is recorded within order book as an order
     /// @param trade_ defining the trade to be placed
     function place(Trade calldata trade_) public {
-        if (trade_.quantity == 0) revert("Invalid quantity");
-        if (trade_.price == 0) revert("Invalid price");
+        if (trade_.quantity == 0) revert InvalidQuantity();
+        if (trade_.price == 0) revert InvalidPrice();
 
         if (trade_.kind == KIND.LIMIT) {
             if (trade_.side == SIDE.BID) {
@@ -234,9 +256,9 @@ contract Market {
 
         if (trade_.kind == KIND.MARKET) {
             if (trade_.side == SIDE.BID) {
-                revert("Unsupported");
+                revert MarketOrderUnsupported();
             } else {
-                revert("Unsupported");
+                revert MarketOrderUnsupported();
             }
         }
     }
@@ -246,10 +268,10 @@ contract Market {
     /// @dev order must not be filled or cancelled
     /// @param id_ unique identifier assigned to order
     function remove(uint256 id_) public {
-        require(traders[id_] == msg.sender, "Not order owner");
-        require(orders[id_].status != STATUS.FILLED, "Order filled");
-        require(orders[id_].status != STATUS.CANCELLED, "Order cancelled");
-        require(orders[id_].kind != KIND.MARKET, "Market order");
+        if (traders[id_] != msg.sender) revert Unauthorized();
+        if (orders[id_].status == STATUS.FILLED) revert OrderFilled();
+        if (orders[id_].status == STATUS.CANCELLED) revert OrderCancelled();
+        if (orders[id_].kind == KIND.MARKET) revert MarketOrderUnsupported();
 
         orders[id_].status = STATUS.CANCELLED;
 
