@@ -75,6 +75,13 @@ contract Market {
     }
 
     /*//////////////////////////////////////////////////////////////
+                            MARKET TYPES
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice type for price levels in the order book
+    type Price is uint256;
+
+    /*//////////////////////////////////////////////////////////////
                            MARKET STRUCTURES
     //////////////////////////////////////////////////////////////*/
 
@@ -87,7 +94,7 @@ contract Market {
     struct Trade {
         KIND kind;
         SIDE side;
-        uint256 price;
+        Price price;
         uint256 quantity;
     }
 
@@ -111,7 +118,7 @@ contract Market {
         STATUS status;
         KIND kind;
         SIDE side;
-        uint256 price;
+        Price price;
         uint256 quantity;
         uint256 remaining;
     }
@@ -141,7 +148,7 @@ contract Market {
 
     /// @notice maps price to price level in the order book
     /// @dev price level is unique and precise to 18 decimal places
-    mapping(uint256 price => Level) internal levels;
+    mapping(Price price => Level) internal levels;
 
     /// @notice maps id assigned to order to trader responsible for order
     /// @dev allows for quick lookup of trader by order id
@@ -201,7 +208,7 @@ contract Market {
     /// @param price_ level at which depth is queried
     /// @return bidDepth indicating open bid interest at price level
     /// @return askDepth indicating open ask interest at price level
-    function depth(uint256 price_)
+    function depth(Price price_)
         public
         view
         returns (uint256 bidDepth, uint256 askDepth)
@@ -214,7 +221,7 @@ contract Market {
     /// @notice get set of bid order ids at a specific price level
     /// @param price_ level at which bids are queried
     /// @return set of bid order ids at price level
-    function bids(uint256 price_) public view returns (uint256[] memory set) {
+    function bids(Price price_) public view returns (uint256[] memory set) {
         Level storage level = levels[price_];
         set = level.bids.toArray();
     }
@@ -222,7 +229,7 @@ contract Market {
     /// @notice get set of ask order ids at a specific price level
     /// @param price_ level at which asks are queried
     /// @return set of ask order ids at price level
-    function asks(uint256 price_) public view returns (uint256[] memory set) {
+    function asks(Price price_) public view returns (uint256[] memory set) {
         Level storage level = levels[price_];
         set = level.asks.toArray();
     }
@@ -244,7 +251,7 @@ contract Market {
     /// @param trade_ defining the trade to be placed
     function place(Trade calldata trade_) public {
         if (trade_.quantity == 0) revert InvalidQuantity();
-        if (trade_.price == 0) revert InvalidPrice();
+        if (Price.unwrap(trade_.price) == 0) revert InvalidPrice();
 
         if (trade_.kind == KIND.LIMIT) {
             if (trade_.side == SIDE.BID) {
@@ -332,7 +339,7 @@ contract Market {
             remaining: trade_.quantity
         });
 
-        uint256 p = bid.price;
+        uint256 p = Price.unwrap(bid.price);
         uint256 n = bid.quantity;
         uint256 i = n / p;
 
@@ -456,7 +463,7 @@ contract Market {
             remaining: trade_.quantity
         });
 
-        uint256 p = ask.price;
+        uint256 p = Price.unwrap(ask.price);
         uint256 i = ask.quantity;
         uint256 n = p * i;
 
