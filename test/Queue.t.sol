@@ -13,8 +13,8 @@ contract QueueTest is Test {
 
     Queue.T queue;
 
-    function _enqueue(uint256 size) internal {
-        for (uint256 i = 1; i <= size; i++) {
+    function _enqueue(uint64 size) internal {
+        for (uint64 i = 1; i <= size; i++) {
             queue.enqueue(i);
         }
     }
@@ -43,9 +43,9 @@ contract QueueTest is Test {
 
     function test_queue_toArray(uint8 x) public {
         _enqueue(x);
-        uint256[] memory arr = queue.toArray();
+        uint64[] memory arr = queue.toArray();
         assertEq(arr.length, x);
-        for (uint256 i = 0; i < x; i++) {
+        for (uint64 i = 0; i < x; i++) {
             assertEq(arr[i], i + 1);
         }
     }
