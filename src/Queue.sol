@@ -24,9 +24,9 @@ library Queue {
     /// @custom:back index that maps to the last element in the queue
     /// @custom:q mapping of index to elements in the queue
     struct T {
-        uint256 front;
-        uint256 back;
-        mapping(uint256 => uint256) data;
+        uint128 front;
+        uint128 back;
+        mapping(uint128 => uint64) data;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -38,7 +38,7 @@ library Queue {
     /// @custom:throws if the queue is empty
     /// @param queue_ from which to peek
     /// @return uint256 element at the front of the queue
-    function peek(T storage queue_) external view returns (uint256) {
+    function peek(T storage queue_) external view returns (uint64) {
         require(queue_.front != queue_.back, EmptyQueue());
         return queue_.data[queue_.front];
     }
@@ -64,14 +64,14 @@ library Queue {
     function toArray(T storage queue_)
         external
         view
-        returns (uint256[] memory set)
+        returns (uint64[] memory set)
     {
-        uint256 start = queue_.front;
-        uint256 end = queue_.back;
+        uint128 start = queue_.front;
+        uint128 end = queue_.back;
 
-        set = new uint256[](end - start);
+        set = new uint64[](end - start);
 
-        uint256 j = 0;
+        uint128 j = 0;
         while (start < end) {
             set[j++] = queue_.data[start++];
         }
@@ -101,7 +101,7 @@ library Queue {
     /// @custom:complexity O(1) time complexity
     /// @param queue_ to which to add the value
     /// @param value_ to be added to the queue
-    function enqueue(T storage queue_, uint256 value_) external {
+    function enqueue(T storage queue_, uint64 value_) external {
         queue_.data[queue_.back] = value_;
         unchecked {
             queue_.back++;
@@ -128,7 +128,7 @@ library Queue {
     /// @custom:throws if the queue is empty
     /// @param queue_ from which to dequeue
     /// @return value The dequeued value
-    function dequeue(T storage queue_) external returns (uint256 value) {
+    function dequeue(T storage queue_) external returns (uint64 value) {
         require(queue_.front != queue_.back, EmptyQueue());
 
         // record the value to return before deleting
