@@ -154,11 +154,6 @@ contract Market {
     /// @dev allows for quick lookup of trader by order id
     mapping(uint256 id => address trader) internal traders;
 
-    /// @notice maps trader to their entire order history
-    /// @dev allows for quick lookup of all orders placed by trader
-    /// @dev records all orders, regardless of status, for reference
-    mapping(address trader => uint256[] ids) internal history;
-
     /// @notice unique identifier for each order
     /// @dev incremented for each new order
     /// @custom:cid acronym for "current identifier"
@@ -185,6 +180,31 @@ contract Market {
 
     /// @notice thrown when operation is not supported for market orders
     error MarketOrderUnsupported();
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Emitted when a new order is placed in the market
+    /// @custom:id unique identifier assigned to the order
+    /// @custom:blocknumber at which order was placed
+    /// @custom:trader address of the trader responsible for the order
+    /// @custom:side indicates the direction of the order
+    /// @custom:price indicates the price level at which the order is placed
+    /// @custom:quantity indicates the intended amount of tokens to be exchanged
+    /// @custom:remaining indicates the amount of tokens yet to be exchanged
+    /// @custom:status indicates the current state of the order
+    /// @custom:blocknumber at which order was placed
+    event OrderPlaced(
+        uint256 indexed id,
+        address indexed trader,
+        SIDE side,
+        Price price,
+        uint256 quantity,
+        uint256 remaining,
+        STATUS status,
+        uint256 blocknumber
+    );
 
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -276,13 +296,15 @@ contract Market {
     /// @param id_ unique identifier assigned to order
     function remove(uint256 id_) public {
         if (traders[id_] != msg.sender) revert Unauthorized();
-        if (orders[id_].status == STATUS.FILLED) revert OrderFilled();
-        if (orders[id_].status == STATUS.CANCELLED) revert OrderCancelled();
-        if (orders[id_].kind == KIND.MARKET) revert MarketOrderUnsupported();
-
-        orders[id_].status = STATUS.CANCELLED;
 
         Order storage order = orders[id_];
+
+        if (order.status == STATUS.FILLED) revert OrderFilled();
+        if (order.status == STATUS.CANCELLED) revert OrderCancelled();
+        if (order.kind == KIND.MARKET) revert MarketOrderUnsupported();
+
+        order.status = STATUS.CANCELLED;
+
         Level storage level = levels[order.price];
 
         // cache remaining quantity of order
@@ -419,10 +441,10 @@ contract Market {
         /// @dev if bid not fully filled, enqueue bid order
         if (bid.status != STATUS.FILLED) {
             level.bids.enqueue(id);
-        }
 
-        // update bid depth of current price level
-        level.bidDepth += bid.remaining;
+            // update bid depth of current price level
+            level.bidDepth += bid.remaining;
+        }
 
         // add storage reference to bid order
         orders[id] = bid;
@@ -430,8 +452,16 @@ contract Market {
         // add storage reference to trader responsible for bid order
         traders[id] = msg.sender;
 
-        // add order id to the history of trades made by trader
-        history[msg.sender].push(id);
+        emit OrderPlaced(
+            id,
+            msg.sender,
+            bid.side,
+            bid.price,
+            bid.quantity,
+            bid.remaining,
+            bid.status,
+            block.number
+        );
     }
 
     /// @notice place an ask limit order on the order book
@@ -545,10 +575,10 @@ contract Market {
         /// @dev if ask not fully filled, enqueue ask order
         if (ask.status != STATUS.FILLED) {
             level.asks.enqueue(id);
-        }
 
-        // update ask depth of current price level
-        level.askDepth += ask.remaining;
+            // update ask depth of current price level
+            level.askDepth += ask.remaining;
+        }
 
         // add storage reference to ask order
         orders[id] = ask;
@@ -556,8 +586,16 @@ contract Market {
         // add storage reference to trader responsible for ask order
         traders[id] = msg.sender;
 
-        // add order id to the history of trades made by trader
-        history[msg.sender].push(id);
+        emit OrderPlaced(
+            id,
+            msg.sender,
+            ask.side,
+            ask.price,
+            ask.quantity,
+            ask.remaining,
+            ask.status,
+            block.number
+        );
     }
 
 }
