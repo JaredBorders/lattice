@@ -79,7 +79,7 @@ contract Market {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice type for price levels in the order book
-    type Price is uint256;
+    type Price is uint128;
 
     /*//////////////////////////////////////////////////////////////
                            MARKET STRUCTURES
@@ -95,7 +95,7 @@ contract Market {
         KIND kind;
         SIDE side;
         Price price;
-        uint256 quantity;
+        uint128 quantity;
     }
 
     /// @notice defines the structure of an order recorded by the book
@@ -112,15 +112,15 @@ contract Market {
     /// @custom:quantity indicates the intended amount of tokens to be exchanged
     /// @custom:remaining indicates the amount of tokens yet to be exchanged
     struct Order {
-        uint256 id;
-        uint256 blocknumber;
+        uint64 id;
+        uint32 blocknumber;
         address trader;
         STATUS status;
         KIND kind;
         SIDE side;
         Price price;
-        uint256 quantity;
-        uint256 remaining;
+        uint128 quantity;
+        uint128 remaining;
     }
 
     /// @notice defines the structure of a price level in the order book
@@ -131,8 +131,8 @@ contract Market {
     /// @custom:bids queue records bids eligible for matching at price level
     /// @custom:asks queue records asks eligible for matching at price level
     struct Level {
-        uint256 bidDepth;
-        uint256 askDepth;
+        uint128 bidDepth;
+        uint128 askDepth;
         Queue.T bids;
         Queue.T asks;
     }
@@ -144,7 +144,7 @@ contract Market {
     /// @notice maps id assigned to order to the order itself
     /// @dev order id is unique and incremented for each new order
     /// @dev records all orders, regardless of status, for reference
-    mapping(uint256 id => Order) internal orders;
+    mapping(uint64 id => Order) internal orders;
 
     /// @notice maps price to price level in the order book
     /// @dev price level is unique and precise to 18 decimal places
@@ -152,17 +152,12 @@ contract Market {
 
     /// @notice maps id assigned to order to trader responsible for order
     /// @dev allows for quick lookup of trader by order id
-    mapping(uint256 id => address trader) internal traders;
-
-    /// @notice maps trader to their entire order history
-    /// @dev allows for quick lookup of all orders placed by trader
-    /// @dev records all orders, regardless of status, for reference
-    mapping(address trader => uint256[] ids) internal history;
+    mapping(uint64 id => address trader) internal traders;
 
     /// @notice unique identifier for each order
     /// @dev incremented for each new order
     /// @custom:cid acronym for "current identifier"
-    uint256 private cid;
+    uint64 private cid;
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -185,6 +180,31 @@ contract Market {
 
     /// @notice thrown when operation is not supported for market orders
     error MarketOrderUnsupported();
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Emitted when a new order is placed in the market
+    /// @custom:id unique identifier assigned to the order
+    /// @custom:blocknumber at which order was placed
+    /// @custom:trader address of the trader responsible for the order
+    /// @custom:side indicates the direction of the order
+    /// @custom:price indicates the price level at which the order is placed
+    /// @custom:quantity indicates the intended amount of tokens to be exchanged
+    /// @custom:remaining indicates the amount of tokens yet to be exchanged
+    /// @custom:status indicates the current state of the order
+    /// @custom:blocknumber at which order was placed
+    event OrderPlaced(
+        uint64 indexed id,
+        address indexed trader,
+        SIDE side,
+        Price price,
+        uint128 quantity,
+        uint128 remaining,
+        STATUS status,
+        uint32 blocknumber
+    );
 
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -211,7 +231,7 @@ contract Market {
     function depth(Price price_)
         public
         view
-        returns (uint256 bidDepth, uint256 askDepth)
+        returns (uint128 bidDepth, uint128 askDepth)
     {
         Level storage level = levels[price_];
         bidDepth = level.bidDepth;
@@ -221,7 +241,7 @@ contract Market {
     /// @notice get set of bid order ids at a specific price level
     /// @param price_ level at which bids are queried
     /// @return set of bid order ids at price level
-    function bids(Price price_) public view returns (uint256[] memory set) {
+    function bids(Price price_) public view returns (uint64[] memory set) {
         Level storage level = levels[price_];
         set = level.bids.toArray();
     }
@@ -229,7 +249,7 @@ contract Market {
     /// @notice get set of ask order ids at a specific price level
     /// @param price_ level at which asks are queried
     /// @return set of ask order ids at price level
-    function asks(Price price_) public view returns (uint256[] memory set) {
+    function asks(Price price_) public view returns (uint64[] memory set) {
         Level storage level = levels[price_];
         set = level.asks.toArray();
     }
@@ -237,7 +257,7 @@ contract Market {
     /// @notice get order by id
     /// @param id_ unique identifier assigned to order
     /// @return order object associated with id
-    function getOrder(uint256 id_) public view returns (Order memory) {
+    function getOrder(uint64 id_) public view returns (Order memory) {
         return orders[id_];
     }
 
@@ -274,19 +294,21 @@ contract Market {
     /// @dev only order owner can remove order
     /// @dev order must not be filled or cancelled
     /// @param id_ unique identifier assigned to order
-    function remove(uint256 id_) public {
+    function remove(uint64 id_) public {
         if (traders[id_] != msg.sender) revert Unauthorized();
-        if (orders[id_].status == STATUS.FILLED) revert OrderFilled();
-        if (orders[id_].status == STATUS.CANCELLED) revert OrderCancelled();
-        if (orders[id_].kind == KIND.MARKET) revert MarketOrderUnsupported();
-
-        orders[id_].status = STATUS.CANCELLED;
 
         Order storage order = orders[id_];
+
+        if (order.status == STATUS.FILLED) revert OrderFilled();
+        if (order.status == STATUS.CANCELLED) revert OrderCancelled();
+        if (order.kind == KIND.MARKET) revert MarketOrderUnsupported();
+
+        order.status = STATUS.CANCELLED;
+
         Level storage level = levels[order.price];
 
         // cache remaining quantity of order
-        uint256 remaining = order.remaining;
+        uint128 remaining = order.remaining;
 
         // zero out remaining quantity of order
         order.remaining = 0;
@@ -314,7 +336,7 @@ contract Market {
     /// @dev bid order is filled with available asks at price level
     /// @param trade_ defining the bid order to be placed
     /// @return id or unique identifier assigned to bid order placed
-    function __placeBid(Trade calldata trade_) private returns (uint256 id) {
+    function __placeBid(Trade calldata trade_) private returns (uint64 id) {
         /// @dev immediately transfer numeraire tokens to contract
         numeraire.transferFrom(msg.sender, address(this), trade_.quantity);
 
@@ -329,7 +351,7 @@ contract Market {
         /// @dev initially, remaining quantity is equal to total quantity
         Order memory bid = Order({
             id: id,
-            blocknumber: block.number,
+            blocknumber: uint32(block.number),
             trader: msg.sender,
             status: STATUS.OPEN,
             kind: trade_.kind,
@@ -339,13 +361,13 @@ contract Market {
             remaining: trade_.quantity
         });
 
-        uint256 p = Price.unwrap(bid.price);
-        uint256 n = bid.quantity;
-        uint256 i = n / p;
+        uint128 p = Price.unwrap(bid.price);
+        uint128 n = bid.quantity;
+        uint128 i = n / p;
 
         while (!level.asks.isEmpty()) {
-            uint256 askId = level.asks.peek();
-            uint256 askRemaining = orders[askId].remaining;
+            uint64 askId = level.asks.peek();
+            uint128 askRemaining = orders[askId].remaining;
 
             if (orders[askId].status == STATUS.CANCELLED) {
                 level.asks.dequeue();
@@ -354,7 +376,7 @@ contract Market {
 
             if (i >= askRemaining) {
                 // define amount of ask order filled
-                uint256 askFilled = askRemaining;
+                uint128 askFilled = askRemaining;
 
                 // decrement (i) to reflect bid quantity filled
                 i -= askFilled;
@@ -385,7 +407,7 @@ contract Market {
                 level.asks.dequeue();
             } else {
                 // define amount of ask order filled
-                uint256 askFilled = i;
+                uint128 askFilled = i;
 
                 // decrement (i) to reflect bid quantity filled
                 i -= askFilled;
@@ -419,10 +441,10 @@ contract Market {
         /// @dev if bid not fully filled, enqueue bid order
         if (bid.status != STATUS.FILLED) {
             level.bids.enqueue(id);
-        }
 
-        // update bid depth of current price level
-        level.bidDepth += bid.remaining;
+            // update bid depth of current price level
+            level.bidDepth += bid.remaining;
+        }
 
         // add storage reference to bid order
         orders[id] = bid;
@@ -430,15 +452,23 @@ contract Market {
         // add storage reference to trader responsible for bid order
         traders[id] = msg.sender;
 
-        // add order id to the history of trades made by trader
-        history[msg.sender].push(id);
+        emit OrderPlaced(
+            id,
+            msg.sender,
+            bid.side,
+            bid.price,
+            bid.quantity,
+            bid.remaining,
+            bid.status,
+            uint32(block.number)
+        );
     }
 
     /// @notice place an ask limit order on the order book
     /// @dev ask order is filled with available bids at price level
     /// @param trade_ defining the ask order to be placed
     /// @return id or unique identifier assigned to ask order placed
-    function __placeAsk(Trade calldata trade_) private returns (uint256 id) {
+    function __placeAsk(Trade calldata trade_) private returns (uint64 id) {
         /// @dev immediately transfer index tokens to contract
         index.transferFrom(msg.sender, address(this), trade_.quantity);
 
@@ -453,7 +483,7 @@ contract Market {
         /// @dev initially, remaining quantity is equal to total quantity
         Order memory ask = Order({
             id: id,
-            blocknumber: block.number,
+            blocknumber: uint32(block.number),
             trader: msg.sender,
             status: STATUS.OPEN,
             kind: trade_.kind,
@@ -463,13 +493,13 @@ contract Market {
             remaining: trade_.quantity
         });
 
-        uint256 p = Price.unwrap(ask.price);
-        uint256 i = ask.quantity;
-        uint256 n = p * i;
+        uint128 p = Price.unwrap(ask.price);
+        uint128 i = ask.quantity;
+        uint128 n = p * i;
 
         while (!level.bids.isEmpty()) {
-            uint256 bidId = level.bids.peek();
-            uint256 bidRemaining = orders[bidId].remaining;
+            uint64 bidId = level.bids.peek();
+            uint128 bidRemaining = orders[bidId].remaining;
 
             // if bid was previously cancelled, dequeue and continue
             if (orders[bidId].status == STATUS.CANCELLED) {
@@ -480,7 +510,7 @@ contract Market {
             // check if peeked bid can be filled completely by current ask
             if (n >= bidRemaining) {
                 // define amount of bid order filled
-                uint256 bidFilled = bidRemaining;
+                uint128 bidFilled = bidRemaining;
 
                 // decrement (n) to reflect bid quantity filled
                 n -= bidFilled;
@@ -511,7 +541,7 @@ contract Market {
                 level.bids.dequeue();
             } else {
                 // define amount of bid order filled
-                uint256 bidFilled = n;
+                uint128 bidFilled = n;
 
                 // decrement (n) to reflect bid quantity filled
                 n -= bidFilled;
@@ -545,10 +575,10 @@ contract Market {
         /// @dev if ask not fully filled, enqueue ask order
         if (ask.status != STATUS.FILLED) {
             level.asks.enqueue(id);
-        }
 
-        // update ask depth of current price level
-        level.askDepth += ask.remaining;
+            // update ask depth of current price level
+            level.askDepth += ask.remaining;
+        }
 
         // add storage reference to ask order
         orders[id] = ask;
@@ -556,8 +586,16 @@ contract Market {
         // add storage reference to trader responsible for ask order
         traders[id] = msg.sender;
 
-        // add order id to the history of trades made by trader
-        history[msg.sender].push(id);
+        emit OrderPlaced(
+            id,
+            msg.sender,
+            ask.side,
+            ask.price,
+            ask.quantity,
+            ask.remaining,
+            ask.status,
+            uint32(block.number)
+        );
     }
 
 }

@@ -36,7 +36,7 @@ library Hook {
         }
 
         if (op_.method == METHOD.REMOVE) {
-            market_.remove(abi.decode(op_.parameters, (uint256)));
+            market_.remove(uint64(abi.decode(op_.parameters, (uint256))));
             return;
         }
     }
