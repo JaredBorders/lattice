@@ -75,6 +75,13 @@ contract Market {
     }
 
     /*//////////////////////////////////////////////////////////////
+                            MARKET TYPES
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice type for price levels in the order book
+    type Price is uint256;
+
+    /*//////////////////////////////////////////////////////////////
                            MARKET STRUCTURES
     //////////////////////////////////////////////////////////////*/
 
@@ -87,7 +94,7 @@ contract Market {
     struct Trade {
         KIND kind;
         SIDE side;
-        uint256 price;
+        Price price;
         uint256 quantity;
     }
 
@@ -111,7 +118,7 @@ contract Market {
         STATUS status;
         KIND kind;
         SIDE side;
-        uint256 price;
+        Price price;
         uint256 quantity;
         uint256 remaining;
     }
@@ -141,7 +148,7 @@ contract Market {
 
     /// @notice maps price to price level in the order book
     /// @dev price level is unique and precise to 18 decimal places
-    mapping(uint256 price => Level) internal levels;
+    mapping(Price price => Level) internal levels;
 
     /// @notice maps id assigned to order to trader responsible for order
     /// @dev allows for quick lookup of trader by order id
@@ -156,6 +163,28 @@ contract Market {
     /// @dev incremented for each new order
     /// @custom:cid acronym for "current identifier"
     uint256 private cid;
+
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice thrown when an invalid price is provided
+    error InvalidPrice();
+
+    /// @notice thrown when an invalid quantity is provided
+    error InvalidQuantity();
+
+    /// @notice thrown when msg.sender is not the order owner
+    error Unauthorized();
+
+    /// @notice thrown when the order is already filled
+    error OrderFilled();
+
+    /// @notice thrown when the order is already cancelled
+    error OrderCancelled();
+
+    /// @notice thrown when operation is not supported for market orders
+    error MarketOrderUnsupported();
 
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -179,7 +208,7 @@ contract Market {
     /// @param price_ level at which depth is queried
     /// @return bidDepth indicating open bid interest at price level
     /// @return askDepth indicating open ask interest at price level
-    function depth(uint256 price_)
+    function depth(Price price_)
         public
         view
         returns (uint256 bidDepth, uint256 askDepth)
@@ -192,7 +221,7 @@ contract Market {
     /// @notice get set of bid order ids at a specific price level
     /// @param price_ level at which bids are queried
     /// @return set of bid order ids at price level
-    function bids(uint256 price_) public view returns (uint256[] memory set) {
+    function bids(Price price_) public view returns (uint256[] memory set) {
         Level storage level = levels[price_];
         set = level.bids.toArray();
     }
@@ -200,7 +229,7 @@ contract Market {
     /// @notice get set of ask order ids at a specific price level
     /// @param price_ level at which asks are queried
     /// @return set of ask order ids at price level
-    function asks(uint256 price_) public view returns (uint256[] memory set) {
+    function asks(Price price_) public view returns (uint256[] memory set) {
         Level storage level = levels[price_];
         set = level.asks.toArray();
     }
@@ -221,8 +250,8 @@ contract Market {
     /// @dev trade object is recorded within order book as an order
     /// @param trade_ defining the trade to be placed
     function place(Trade calldata trade_) public {
-        if (trade_.quantity == 0) revert("Invalid quantity");
-        if (trade_.price == 0) revert("Invalid price");
+        if (trade_.quantity == 0) revert InvalidQuantity();
+        if (Price.unwrap(trade_.price) == 0) revert InvalidPrice();
 
         if (trade_.kind == KIND.LIMIT) {
             if (trade_.side == SIDE.BID) {
@@ -234,9 +263,9 @@ contract Market {
 
         if (trade_.kind == KIND.MARKET) {
             if (trade_.side == SIDE.BID) {
-                revert("Unsupported");
+                revert MarketOrderUnsupported();
             } else {
-                revert("Unsupported");
+                revert MarketOrderUnsupported();
             }
         }
     }
@@ -246,10 +275,10 @@ contract Market {
     /// @dev order must not be filled or cancelled
     /// @param id_ unique identifier assigned to order
     function remove(uint256 id_) public {
-        require(traders[id_] == msg.sender, "Not order owner");
-        require(orders[id_].status != STATUS.FILLED, "Order filled");
-        require(orders[id_].status != STATUS.CANCELLED, "Order cancelled");
-        require(orders[id_].kind != KIND.MARKET, "Market order");
+        if (traders[id_] != msg.sender) revert Unauthorized();
+        if (orders[id_].status == STATUS.FILLED) revert OrderFilled();
+        if (orders[id_].status == STATUS.CANCELLED) revert OrderCancelled();
+        if (orders[id_].kind == KIND.MARKET) revert MarketOrderUnsupported();
 
         orders[id_].status = STATUS.CANCELLED;
 
@@ -310,7 +339,7 @@ contract Market {
             remaining: trade_.quantity
         });
 
-        uint256 p = bid.price;
+        uint256 p = Price.unwrap(bid.price);
         uint256 n = bid.quantity;
         uint256 i = n / p;
 
@@ -345,8 +374,8 @@ contract Market {
                 // update bid order remaining quantity
                 bid.remaining -= askFilled * p;
 
-                // update bid order status to PARTIAL
-                bid.status = STATUS.PARTIAL;
+                // update bid order status
+                bid.status = bid.remaining == 0 ? STATUS.FILLED : STATUS.PARTIAL;
 
                 /// @custom:settle
                 numeraire.transfer(ask.trader, askFilled * p);
@@ -434,7 +463,7 @@ contract Market {
             remaining: trade_.quantity
         });
 
-        uint256 p = ask.price;
+        uint256 p = Price.unwrap(ask.price);
         uint256 i = ask.quantity;
         uint256 n = p * i;
 
@@ -471,8 +500,8 @@ contract Market {
                 // update ask order remaining quantity
                 ask.remaining -= bidFilled / p;
 
-                // update ask order status to PARTIAL
-                ask.status = STATUS.PARTIAL;
+                // update ask order status
+                ask.status = ask.remaining == 0 ? STATUS.FILLED : STATUS.PARTIAL;
 
                 /// @custom:settle
                 numeraire.transfer(msg.sender, bidFilled);
