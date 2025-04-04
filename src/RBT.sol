@@ -26,8 +26,8 @@ library RBT {
     /// @custom:root key of the root node
     /// @custom:nodes mapping of keys to nodes
     struct Tree {
-        uint128 root; // Root node key
-        mapping(uint128 => Node) nodes; // Maps price levels to nodes
+        uint128 root;
+        mapping(uint128 => Node) nodes;
     }
 
     /*//////////////////////////////////////////////////////////////
