@@ -330,9 +330,17 @@ contract BidOrderTest is MarketTest {
 
 contract BidBenchmarkTest is BidOrderTest {
 
-    uint256 private constant BID_GAS_BENCHMARK = 210_439;
+    uint256 private constant BID_GAS_BENCHMARK = 259_516;
     uint256 private constant GAS_BLOCK_LIMIT = 30_000_000;
-    uint256 private constant MAX_BIDS_PER_BLOCK = 142;
+    uint256 private constant MAX_BIDS_PER_BLOCK = 115;
+
+    uint256 private constant MATCHING_BID_GAS_BENCHMARK = 242_767;
+    uint256 private constant MAX_MATCHING_BIDS_PER_BLOCK = 123;
+
+    uint256 private constant MATCHING_BID_C_GAS_BENCHMARK = 618_515;
+    ///@dev in practice, only one bid will have to go through all cancelled
+    /// orders on a price level
+    uint256 private constant MAX_MATCHING_BIDS_C_PER_BLOCK = 48;
 
     function test_benchmark_place_bid() public prankster(DONNIE) {
         vm.skip(true);
@@ -360,6 +368,104 @@ contract BidBenchmarkTest is BidOrderTest {
 
         assertEq(gas, BID_GAS_BENCHMARK);
         assertEq(MAX_BIDS_PER_BLOCK, GAS_BLOCK_LIMIT / BID_GAS_BENCHMARK);
+    }
+
+    function test_benchmark_place_bid_matching() public {
+        vm.skip(true);
+
+        /// @custom:market sUSD:sETH Market
+        /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
+        uint128 price = 1_919_470_000_000_000_000_000;
+
+        uint128 quantity = 10;
+        uint128 bidQuantity = price * quantity * 10;
+
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        // Place 10 ask that will be filled by place bid
+        vm.startPrank(JORDAN);
+        for (uint256 i = 0; i < 10; i++) {
+            market.place(ask);
+        }
+        vm.stopPrank();
+
+        // Now place a matching bid as DONNIE
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            bidQuantity
+        );
+
+        uint256 gas = gasleft();
+
+        vm.prank(DONNIE);
+        market.place(bid);
+
+        gas = (gas - gasleft()) + GAS_OPCODE_COST;
+
+        assertEq(gas, MATCHING_BID_GAS_BENCHMARK);
+        assertEq(
+            MAX_MATCHING_BIDS_PER_BLOCK,
+            GAS_BLOCK_LIMIT / MATCHING_BID_GAS_BENCHMARK
+        );
+    }
+
+    function test_benchmark_place_bid_matching_with_cancelled_orders() public {
+        vm.skip(true);
+
+        /// @custom:market sUSD:sETH Market
+        /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
+        uint128 price = 1_919_470_000_000_000_000_000;
+
+        uint128 quantity = 10;
+        uint128 bidQuantity = price * quantity * 10;
+
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        // Make 100 canceled orders
+        vm.startPrank(JORDAN);
+        for (uint256 i = 0; i < 100; i++) {
+            market.place(ask);
+            market.remove(uint64(i));
+        }
+
+        // Place 10 ask that will be filled by place bid
+        for (uint256 i = 0; i < 10; i++) {
+            market.place(ask);
+        }
+        vm.stopPrank();
+
+        // Now place a matching bid as DONNIE
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            bidQuantity
+        );
+
+        uint256 gas = gasleft();
+
+        vm.prank(DONNIE);
+        market.place(bid);
+
+        gas = (gas - gasleft()) + GAS_OPCODE_COST;
+
+        assertEq(gas, MATCHING_BID_C_GAS_BENCHMARK);
+        assertEq(
+            MAX_MATCHING_BIDS_C_PER_BLOCK,
+            GAS_BLOCK_LIMIT / MATCHING_BID_C_GAS_BENCHMARK
+        );
     }
 
 }
