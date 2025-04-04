@@ -4,7 +4,7 @@ pragma solidity 0.8.29;
 import {ERC20 as Synth} from "./ERC20.sol";
 import {Hook} from "./Hook.sol";
 import {Queue} from "./Queue.sol";
-import {RBT} from "./RBT.sol";
+import {RedBlackTreeLib} from "@solady/utils/RedBlackTreeLib.sol";
 
 /// @title market mechanism supporting programmatic liquidity
 /// @dev mechanism utilizes a bid/ask order book to facilitate trading
@@ -15,9 +15,6 @@ contract Market {
     /// @notice fifo queue library for bid/ask orders
     /// @dev enforces price-time priority in tandem with price levels
     using Queue for Queue.T;
-
-    /// @notice RBT library for tracking price levels in order of priority
-    using RBT for RBT.Tree;
 
     /*//////////////////////////////////////////////////////////////
                              MARKET TOKENS
@@ -166,8 +163,8 @@ contract Market {
     /// @notice Red-Black Trees for tracking price levels in order of priority
     /// @dev bidTree keys are negated to sort in descending order (highest bids
     /// first)
-    RBT.Tree private bidTree;
-    RBT.Tree private askTree;
+    RedBlackTreeLib.Tree private bidTree;
+    RedBlackTreeLib.Tree private askTree;
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -276,31 +273,32 @@ contract Market {
 
     /// @notice get best bid price (highest price)
     function getBestBidPrice() public view returns (Price) {
-        uint128 key = bidTree.first();
-        if (key == RBT.getEmpty()) {
+        bytes32 keyPtr = RedBlackTreeLib.first(bidTree);
+        if (RedBlackTreeLib.isEmpty(keyPtr)) {
             return Price.wrap(0);
         }
+        uint256 key = RedBlackTreeLib.value(keyPtr);
         // Bids are stored with negated keys for proper sorting (highest first)
-        return Price.wrap(type(uint128).max - key);
+        return Price.wrap(type(uint128).max - uint128(key));
     }
 
     /// @notice get best ask price (lowest price)
     function getBestAskPrice() public view returns (Price) {
-        uint128 key = askTree.first();
-        if (key == RBT.getEmpty()) {
+        bytes32 keyPtr = RedBlackTreeLib.first(askTree);
+        if (RedBlackTreeLib.isEmpty(keyPtr)) {
             return Price.wrap(0);
         }
-        return Price.wrap(key);
+        return Price.wrap(uint128(RedBlackTreeLib.value(keyPtr)));
     }
 
     /// @notice get all price levels in the bid book (descending order)
     function getAllBidPrices() public view returns (Price[] memory) {
-        uint128[] memory keys = bidTree.toArray();
+        uint256[] memory keys = RedBlackTreeLib.values(bidTree);
         Price[] memory prices = new Price[](keys.length);
 
         for (uint256 i = 0; i < keys.length; i++) {
             // Convert from negated storage format
-            prices[i] = Price.wrap(type(uint128).max - keys[i]);
+            prices[i] = Price.wrap(type(uint128).max - uint128(keys[i]));
         }
 
         return prices;
@@ -308,11 +306,11 @@ contract Market {
 
     /// @notice get all price levels in the ask book (ascending order)
     function getAllAskPrices() public view returns (Price[] memory) {
-        uint128[] memory keys = askTree.toArray();
+        uint256[] memory keys = RedBlackTreeLib.values(askTree);
         Price[] memory prices = new Price[](keys.length);
 
         for (uint256 i = 0; i < keys.length; i++) {
-            prices[i] = Price.wrap(keys[i]);
+            prices[i] = Price.wrap(uint128(keys[i]));
         }
 
         return prices;
@@ -327,11 +325,15 @@ contract Market {
         returns (Price)
     {
         uint128 currentKey = Price.unwrap(currentPrice);
-        uint128 nextKey = askTree.next(currentKey);
-        if (nextKey == RBT.getEmpty()) {
+        bytes32 keyPtr = RedBlackTreeLib.find(askTree, currentKey);
+        if (RedBlackTreeLib.isEmpty(keyPtr)) {
             return Price.wrap(0);
         }
-        return Price.wrap(nextKey);
+        bytes32 nextPtr = RedBlackTreeLib.next(keyPtr);
+        if (RedBlackTreeLib.isEmpty(nextPtr)) {
+            return Price.wrap(0);
+        }
+        return Price.wrap(uint128(RedBlackTreeLib.value(nextPtr)));
     }
 
     /// @notice get the next best bid price after a given price
@@ -344,12 +346,18 @@ contract Market {
     {
         // Convert from negated storage format
         uint128 currentKey = type(uint128).max - Price.unwrap(currentPrice);
-        uint128 nextKey = bidTree.next(currentKey);
-        if (nextKey == RBT.getEmpty()) {
+        bytes32 keyPtr = RedBlackTreeLib.find(bidTree, currentKey);
+        if (RedBlackTreeLib.isEmpty(keyPtr)) {
+            return Price.wrap(0);
+        }
+        bytes32 nextPtr = RedBlackTreeLib.next(keyPtr);
+        if (RedBlackTreeLib.isEmpty(nextPtr)) {
             return Price.wrap(0);
         }
         // Convert back to actual price
-        return Price.wrap(type(uint128).max - nextKey);
+        return Price.wrap(
+            type(uint128).max - uint128(RedBlackTreeLib.value(nextPtr))
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -415,7 +423,7 @@ contract Market {
             if (level.bidDepth == 0) {
                 // use negated key for bids (to sort in descending order)
                 uint128 treeKey = type(uint128).max - Price.unwrap(order.price);
-                bidTree.remove(treeKey);
+                RedBlackTreeLib.remove(bidTree, treeKey);
             }
         } else {
             //  reduce ask depth of current price level
@@ -426,7 +434,7 @@ contract Market {
 
             // if this price level is now empty, remove it from the tree
             if (level.askDepth == 0) {
-                askTree.remove(Price.unwrap(order.price));
+                RedBlackTreeLib.remove(askTree, Price.unwrap(order.price));
             }
         }
     }
@@ -546,14 +554,27 @@ contract Market {
                 index.transfer(msg.sender, indexReceived);
             }
 
+            /// @dev We must find the next price level before removing the
+            /// current one from the tree.
+            /// This is because Solady's RedBlackTreeLib uses pointer-based
+            /// traversal, and once a node
+            /// is removed from the tree, we can no longer find its neighbors.
+            /// This pattern ensures
+            /// we preserve the traversal path by pre-calculating the next node
+            /// before modifying the tree.
+            Price nextAskPrice = Price.wrap(0);
+            if (continueMatching && maxIndexBuyable > 0) {
+                nextAskPrice = getNextAskPrice(currentAskPrice);
+            }
+
             // remove empty price level from the tree
             if (level.askDepth == 0) {
-                askTree.remove(Price.unwrap(currentAskPrice));
+                RedBlackTreeLib.remove(askTree, Price.unwrap(currentAskPrice));
             }
 
             // move to next price level if we can still buy more
             if (continueMatching && maxIndexBuyable > 0) {
-                currentAskPrice = getNextAskPrice(currentAskPrice);
+                currentAskPrice = nextAskPrice;
             } else {
                 break;
             }
@@ -575,8 +596,8 @@ contract Market {
 
             // add this price level in the bid tree
             uint128 treeKey = type(uint128).max - limitPrice;
-            if (!bidTree.exists(treeKey)) {
-                bidTree.insert(treeKey);
+            if (!RedBlackTreeLib.exists(bidTree, treeKey)) {
+                RedBlackTreeLib.insert(bidTree, treeKey);
             }
         }
 
@@ -717,16 +738,29 @@ contract Market {
                 numeraire.transfer(msg.sender, numeraireReceived);
             }
 
+            /// @dev We must find the next price level before removing the
+            /// current one from the tree.
+            /// This is because Solady's RedBlackTreeLib uses pointer-based
+            /// traversal, and once a node
+            /// is removed from the tree, we can no longer find its neighbors.
+            /// This pattern ensures
+            /// we preserve the traversal path by pre-calculating the next node
+            /// before modifying the tree.
+            Price nextBidPrice = Price.wrap(0);
+            if (continueMatching && remainingIndex > 0) {
+                nextBidPrice = getNextBidPrice(currentBidPrice);
+            }
+
             // remove empty price level from the tree
             if (level.bidDepth == 0) {
                 uint128 treeKey =
                     type(uint128).max - Price.unwrap(currentBidPrice);
-                bidTree.remove(treeKey);
+                RedBlackTreeLib.remove(bidTree, treeKey);
             }
 
             // move to next price level if we still have tokens to sell
             if (continueMatching && remainingIndex > 0) {
-                currentBidPrice = getNextBidPrice(currentBidPrice);
+                currentBidPrice = nextBidPrice;
             } else {
                 break;
             }
@@ -747,8 +781,8 @@ contract Market {
             level.askDepth += remainingIndex;
 
             // ensure this price level is in the ask tree
-            if (!askTree.exists(limitPrice)) {
-                askTree.insert(limitPrice);
+            if (!RedBlackTreeLib.exists(askTree, limitPrice)) {
+                RedBlackTreeLib.insert(askTree, limitPrice);
             }
         }
 
@@ -857,14 +891,27 @@ contract Market {
                 }
             }
 
+            /// @dev We must find the next price level before removing the
+            /// current one from the tree.
+            /// This is because Solady's RedBlackTreeLib uses pointer-based
+            /// traversal, and once a node
+            /// is removed from the tree, we can no longer find its neighbors.
+            /// This pattern ensures
+            /// we preserve the traversal path by pre-calculating the next node
+            /// before modifying the tree.
+            Price nextAskPrice = Price.wrap(0);
+            if (remainingNumeraire > 0) {
+                nextAskPrice = getNextAskPrice(currentPrice);
+            }
+
             // remove empty price level from the tree
             if (level.askDepth == 0) {
-                askTree.remove(Price.unwrap(currentPrice));
+                RedBlackTreeLib.remove(askTree, Price.unwrap(currentPrice));
             }
 
             // move to next price level if order still not filled
             if (remainingNumeraire > 0) {
-                currentPrice = getNextAskPrice(currentPrice);
+                currentPrice = nextAskPrice;
                 if (Price.unwrap(currentPrice) == 0) break;
             }
         }
@@ -988,15 +1035,28 @@ contract Market {
                 }
             }
 
+            /// @dev We must find the next price level before removing the
+            /// current one from the tree.
+            /// This is because Solady's RedBlackTreeLib uses pointer-based
+            /// traversal, and once a node
+            /// is removed from the tree, we can no longer find its neighbors.
+            /// This pattern ensures
+            /// we preserve the traversal path by pre-calculating the next node
+            /// before modifying the tree.
+            Price nextBidPrice = Price.wrap(0);
+            if (remainingIndex > 0) {
+                nextBidPrice = getNextBidPrice(currentPrice);
+            }
+
             // remove empty price level from the tree
             if (level.bidDepth == 0) {
                 uint128 treeKey = type(uint128).max - Price.unwrap(currentPrice);
-                bidTree.remove(treeKey);
+                RedBlackTreeLib.remove(bidTree, treeKey);
             }
 
             // move to next price level if order still not filled
             if (remainingIndex > 0) {
-                currentPrice = getNextBidPrice(currentPrice);
+                currentPrice = nextBidPrice;
                 if (Price.unwrap(currentPrice) == 0) break;
             }
         }
