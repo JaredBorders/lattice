@@ -343,7 +343,7 @@ contract BidBenchmarkTest is BidOrderTest {
     uint256 private constant MAX_MATCHING_BIDS_C_PER_BLOCK = 48;
 
     function test_benchmark_place_bid() public prankster(DONNIE) {
-        vm.skip(true);
+        // vm.skip(true);
 
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
@@ -371,7 +371,7 @@ contract BidBenchmarkTest is BidOrderTest {
     }
 
     function test_benchmark_place_bid_matching() public {
-        vm.skip(true);
+        // vm.skip(true);
 
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
@@ -417,7 +417,7 @@ contract BidBenchmarkTest is BidOrderTest {
     }
 
     function test_benchmark_place_bid_matching_with_cancelled_orders() public {
-        vm.skip(true);
+        // vm.skip(true);
 
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
