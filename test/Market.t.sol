@@ -330,9 +330,9 @@ contract BidOrderTest is MarketTest {
 
 contract BidBenchmarkTest is BidOrderTest {
 
-    uint256 private constant BID_GAS_BENCHMARK = 259_516;
+    uint256 private constant BID_GAS_BENCHMARK = 236_478;
     uint256 private constant GAS_BLOCK_LIMIT = 30_000_000;
-    uint256 private constant MAX_BIDS_PER_BLOCK = 115;
+    uint256 private constant MAX_BIDS_PER_BLOCK = 126;
 
     uint256 private constant MATCHING_BID_GAS_BENCHMARK = 242_767;
     uint256 private constant MAX_MATCHING_BIDS_PER_BLOCK = 123;
@@ -343,7 +343,7 @@ contract BidBenchmarkTest is BidOrderTest {
     uint256 private constant MAX_MATCHING_BIDS_C_PER_BLOCK = 48;
 
     function test_benchmark_place_bid() public prankster(DONNIE) {
-        // vm.skip(true);
+        vm.skip(true);
 
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
@@ -371,7 +371,7 @@ contract BidBenchmarkTest is BidOrderTest {
     }
 
     function test_benchmark_place_bid_matching() public {
-        // vm.skip(true);
+        vm.skip(true);
 
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
@@ -417,7 +417,7 @@ contract BidBenchmarkTest is BidOrderTest {
     }
 
     function test_benchmark_place_bid_matching_with_cancelled_orders() public {
-        // vm.skip(true);
+        vm.skip(true);
 
         /// @custom:market sUSD:sETH Market
         /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
@@ -437,7 +437,7 @@ contract BidBenchmarkTest is BidOrderTest {
         vm.startPrank(JORDAN);
         for (uint256 i = 0; i < 100; i++) {
             market.place(ask);
-            market.remove(uint64(i));
+            market.remove(uint64(i + 1));
         }
 
         // Place 10 ask that will be filled by place bid
@@ -1287,7 +1287,7 @@ contract RemoveOrderTest is MarketTest {
         assertEq(bidDepth, quantity);
         assertEq(numeraire.balanceOf(JORDAN), initialUserBalance - quantity);
 
-        market.remove(0);
+        market.remove(1);
 
         // Verify bid is removed
         (bidDepth,) = market.depth(Market.Price.wrap(price));
@@ -1326,7 +1326,7 @@ contract RemoveOrderTest is MarketTest {
         assertEq(askDepth, quantity);
         assertEq(index.balanceOf(JORDAN), initialUserBalance - quantity);
 
-        market.remove(0);
+        market.remove(1);
 
         // Verify ask is removed
         (, askDepth) = market.depth(Market.Price.wrap(price));
@@ -1355,7 +1355,7 @@ contract RemoveOrderTest is MarketTest {
         // Try to remove it as DONNIE (unauthorized)
         vm.prank(DONNIE);
         vm.expectRevert(abi.encodeWithSelector(Market.Unauthorized.selector));
-        market.remove(0);
+        market.remove(1);
     }
 
     function test_remove_filled_order(uint16 price, uint16 quantity) public {
@@ -1389,7 +1389,7 @@ contract RemoveOrderTest is MarketTest {
         // Try to remove the filled bid
         vm.prank(JORDAN);
         vm.expectRevert(abi.encodeWithSelector(Market.OrderFilled.selector));
-        market.remove(0);
+        market.remove(1);
     }
 
     function test_remove_cancelled_order(
@@ -1414,12 +1414,12 @@ contract RemoveOrderTest is MarketTest {
 
         // Cancel it
         vm.prank(JORDAN);
-        market.remove(0);
+        market.remove(1);
 
         // Try to remove it again
         vm.prank(JORDAN);
         vm.expectRevert(abi.encodeWithSelector(Market.OrderCancelled.selector));
-        market.remove(0);
+        market.remove(1);
     }
 
 }

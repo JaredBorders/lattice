@@ -158,7 +158,7 @@ contract Market {
     /// @notice unique identifier for each order
     /// @dev incremented for each new order
     /// @custom:cid acronym for "current identifier"
-    uint64 private cid;
+    uint64 private cid = 1;
 
     /// @notice Red-Black Trees for tracking price levels in order of priority
     /// @dev bidTree keys are negated to sort in descending order (highest bids
@@ -419,6 +419,8 @@ contract Market {
             /// @custom:settle remaining numeraire tokens
             numeraire.transfer(msg.sender, remaining);
 
+            level.bids.remove(id_);
+
             // if this price level is now empty, remove it from the tree
             if (level.bidDepth == 0) {
                 // use negated key for bids (to sort in descending order)
@@ -431,6 +433,8 @@ contract Market {
 
             /// @custom:settle remaining index tokens
             index.transfer(msg.sender, remaining);
+
+            level.asks.remove(id_);
 
             // if this price level is now empty, remove it from the tree
             if (level.askDepth == 0) {
@@ -496,12 +500,6 @@ contract Market {
             ) {
                 uint64 askId = level.asks.peek();
                 Order storage ask = orders[askId];
-
-                // if ask was previously cancelled, dequeue and continue
-                if (ask.status == STATUS.CANCELLED) {
-                    level.asks.dequeue();
-                    continue;
-                }
 
                 uint128 askIndexRemaining = ask.remaining;
 
@@ -669,12 +667,6 @@ contract Market {
             ) {
                 uint64 bidId = level.bids.peek();
                 Order storage bid = orders[bidId];
-
-                // if bid was previously cancelled, dequeue and continue
-                if (bid.status == STATUS.CANCELLED) {
-                    level.bids.dequeue();
-                    continue;
-                }
 
                 uint128 bidNumeraireRemaining = bid.remaining;
                 uint128 maxIndexBuyable = bidNumeraireRemaining / bidPrice;
@@ -853,12 +845,6 @@ contract Market {
                 uint64 askId = level.asks.peek();
                 Order storage ask = orders[askId];
 
-                // if ask was previously cancelled, dequeue and continue
-                if (ask.status == STATUS.CANCELLED) {
-                    level.asks.dequeue();
-                    continue;
-                }
-
                 uint128 askIndexRemaining = ask.remaining;
                 uint128 maxIndexBuyable = remainingNumeraire / price;
 
@@ -993,12 +979,6 @@ contract Market {
             while (!level.bids.isEmpty() && remainingIndex > 0) {
                 uint64 bidId = level.bids.peek();
                 Order storage bid = orders[bidId];
-
-                // if bid was previously cancelled, dequeue and continue
-                if (bid.status == STATUS.CANCELLED) {
-                    level.bids.dequeue();
-                    continue;
-                }
 
                 uint128 bidNumeraireRemaining = bid.remaining;
                 uint128 maxIndexSellable = bidNumeraireRemaining / price;

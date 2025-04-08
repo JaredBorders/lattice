@@ -24,9 +24,16 @@ library Queue {
     /// @custom:back index that maps to the last element in the queue
     /// @custom:q mapping of index to elements in the queue
     struct T {
-        uint128 front;
-        uint128 back;
-        mapping(uint128 => uint64) data;
+        uint64 front;
+        uint64 back;
+        mapping(uint64 => Node) nodes;
+    }
+
+    /// @custom:prev id of the previous node in the queue
+    /// @custom:next id of the next node in the queue
+    struct Node {
+        uint64 prev;
+        uint64 next;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -39,22 +46,30 @@ library Queue {
     /// @param queue_ from which to peek
     /// @return uint256 element at the front of the queue
     function peek(T storage queue_) external view returns (uint64) {
-        require(queue_.front != queue_.back, EmptyQueue());
-        return queue_.data[queue_.front];
+        if (queue_.front == 0) revert EmptyQueue();
+        return queue_.front;
     }
 
     /// @notice gets the number of elements in the queue
     /// @param queue_ from which to get the size
     /// @return uint256 value representing the number of elements in the queue
     function size(T storage queue_) external view returns (uint256) {
-        return queue_.back - queue_.front;
+        uint64 current = queue_.front;
+        uint256 count;
+
+        while (current != 0) {
+            count++;
+            current = queue_.nodes[current].next;
+        }
+
+        return count;
     }
 
     /// @notice checks if the queue is empty
     /// @param queue_ from which to check if empty
     /// @return boolean value representing if the queue is empty
     function isEmpty(T storage queue_) external view returns (bool) {
-        return queue_.front == queue_.back;
+        return queue_.front == 0;
     }
 
     /// @notice creates a set from the elements in the queue
@@ -66,14 +81,20 @@ library Queue {
         view
         returns (uint64[] memory set)
     {
-        uint128 start = queue_.front;
-        uint128 end = queue_.back;
+        uint64 current = queue_.front;
+        uint256 count;
 
-        set = new uint64[](end - start);
+        while (current != 0) {
+            count++;
+            current = queue_.nodes[current].next;
+        }
 
-        uint128 j = 0;
-        while (start < end) {
-            set[j++] = queue_.data[start++];
+        set = new uint64[](count);
+        current = queue_.front;
+
+        for (uint256 i = 0; i < count; i++) {
+            set[i] = current;
+            current = queue_.nodes[current].next;
         }
     }
 
@@ -102,9 +123,17 @@ library Queue {
     /// @param queue_ to which to add the value
     /// @param value_ to be added to the queue
     function enqueue(T storage queue_, uint64 value_) external {
-        queue_.data[queue_.back] = value_;
-        unchecked {
-            queue_.back++;
+        if (queue_.back == 0) {
+            queue_.front = value_;
+            queue_.back = value_;
+        } else {
+            Node storage prev = queue_.nodes[queue_.back];
+            prev.next = value_;
+
+            Node storage node = queue_.nodes[value_];
+            node.prev = queue_.back;
+
+            queue_.back = value_;
         }
     }
 
@@ -129,17 +158,48 @@ library Queue {
     /// @param queue_ from which to dequeue
     /// @return value The dequeued value
     function dequeue(T storage queue_) external returns (uint64 value) {
-        require(queue_.front != queue_.back, EmptyQueue());
+        value = queue_.front;
+        if (value == 0) revert EmptyQueue();
 
-        // record the value to return before deleting
-        value = queue_.data[queue_.front];
+        Node storage node = queue_.nodes[value];
+        uint64 next = node.next;
 
-        // free storage via deletion; refunds gas
-        delete queue_.data[queue_.front];
-
-        unchecked {
-            queue_.front++;
+        if (next == 0) {
+            queue_.front = 0;
+            queue_.back = 0;
+        } else {
+            queue_.nodes[next].prev = 0;
+            queue_.front = next;
         }
+
+        delete queue_.nodes[value];
+    }
+
+    /// @notice removes an arbitrary value from the queue
+    /// @param queue_ from which to remove
+    /// @param value_ the id of the element to remove
+    function remove(T storage queue_, uint64 value_) external {
+        Node storage node = queue_.nodes[value_];
+        uint64 prev = node.prev;
+        uint64 next = node.next;
+
+        if (queue_.front == value_) {
+            queue_.front = next;
+        }
+
+        if (queue_.back == value_) {
+            queue_.back = prev;
+        }
+
+        if (prev != 0) {
+            queue_.nodes[prev].next = next;
+        }
+
+        if (next != 0) {
+            queue_.nodes[next].prev = prev;
+        }
+
+        delete queue_.nodes[value_];
     }
 
 }
