@@ -698,6 +698,11 @@ contract Market {
                         ? STATUS.FILLED
                         : STATUS.PARTIAL;
 
+                    // remove potential dust from level depth
+                    if (bid.status == STATUS.FILLED && bid.remaining > 0) {
+                        level.bidDepth -= bid.remaining;
+                    }
+
                     /// @custom:settle
                     index.transfer(bid.trader, remainingIndex);
 
@@ -715,7 +720,7 @@ contract Market {
                     numeraireReceived += numeraireToReceive;
 
                     // reduce bid depth of current price level
-                    level.bidDepth -= numeraireToReceive;
+                    level.bidDepth -= bid.remaining;
 
                     // update bid order remaining quantity to 0
                     bid.remaining = 0;
@@ -1002,6 +1007,9 @@ contract Market {
                 remainingIndex -= indexToFill;
                 numeraireReceived += numeraireToReceive;
 
+                // reduce bid depth of current price level
+                level.bidDepth -= numeraireToReceive;
+
                 // update bid order remaining quantity
                 bid.remaining -= numeraireToReceive;
 
@@ -1013,8 +1021,10 @@ contract Market {
                     ? STATUS.FILLED
                     : STATUS.PARTIAL;
 
-                // reduce bid depth of current price level
-                level.bidDepth -= numeraireToReceive;
+                // remove potential dust from level depth
+                if (bid.status == STATUS.FILLED && bid.remaining > 0) {
+                    level.bidDepth -= bid.remaining;
+                }
 
                 /// @custom:settle
                 index.transfer(bid.trader, indexToFill);
