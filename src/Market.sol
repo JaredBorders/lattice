@@ -580,9 +580,11 @@ contract Market {
 
         // update bid order remaining quantity
         bid.remaining = remainingNumeraire;
-
         // update bid order status
-        bid.status = (remainingNumeraire == 0)
+        /// @dev Rather than only checking if bid.remaining is zero,
+        /// this checks if the remaining numeraire is dust
+        /// in which case the order is considered FILLED
+        bid.status = ((bid.remaining / limitPrice) == 0)
             ? STATUS.FILLED
             : (remainingNumeraire < trade_.quantity) ? STATUS.PARTIAL : STATUS.OPEN;
 
@@ -689,8 +691,17 @@ contract Market {
                     bid.remaining -= numeraireToReceive;
 
                     // update bid order status
-                    bid.status =
-                        (bid.remaining == 0) ? STATUS.FILLED : STATUS.PARTIAL;
+                    /// @dev Rather than only checking if bid.remaining is zero,
+                    /// this checks if the remaining numeraire is dust
+                    /// in which case the order is considered FILLED
+                    bid.status = ((bid.remaining / bidPrice) == 0)
+                        ? STATUS.FILLED
+                        : STATUS.PARTIAL;
+
+                    // remove potential dust from level depth
+                    if (bid.status == STATUS.FILLED && bid.remaining > 0) {
+                        level.bidDepth -= bid.remaining;
+                    }
 
                     /// @custom:settle
                     index.transfer(bid.trader, remainingIndex);
@@ -709,7 +720,7 @@ contract Market {
                     numeraireReceived += numeraireToReceive;
 
                     // reduce bid depth of current price level
-                    level.bidDepth -= numeraireToReceive;
+                    level.bidDepth -= bid.remaining;
 
                     // update bid order remaining quantity to 0
                     bid.remaining = 0;
@@ -996,15 +1007,24 @@ contract Market {
                 remainingIndex -= indexToFill;
                 numeraireReceived += numeraireToReceive;
 
+                // reduce bid depth of current price level
+                level.bidDepth -= numeraireToReceive;
+
                 // update bid order remaining quantity
                 bid.remaining -= numeraireToReceive;
 
                 // update bid order status
-                bid.status =
-                    (bid.remaining == 0) ? STATUS.FILLED : STATUS.PARTIAL;
+                /// @dev Rather than only checking if bid.remaining is zero,
+                /// this checks if the remaining numeraire is dust
+                /// in which case the order is considered FILLED
+                bid.status = ((bid.remaining / price) == 0)
+                    ? STATUS.FILLED
+                    : STATUS.PARTIAL;
 
-                // reduce bid depth of current price level
-                level.bidDepth -= numeraireToReceive;
+                // remove potential dust from level depth
+                if (bid.status == STATUS.FILLED && bid.remaining > 0) {
+                    level.bidDepth -= bid.remaining;
+                }
 
                 /// @custom:settle
                 index.transfer(bid.trader, indexToFill);

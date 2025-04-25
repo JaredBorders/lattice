@@ -84,6 +84,7 @@ contract BidOrderTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
 
         // observe initial token balances
         uint256 preTraderBalance = numeraire.balanceOf(JORDAN);
@@ -131,6 +132,7 @@ contract BidOrderTest is MarketTest {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
         vm.assume(trades != 0);
+        vm.assume(quantity >= price);
 
         // observe initial token balances
         uint256 preTraderBalance = numeraire.balanceOf(JORDAN);
@@ -190,6 +192,7 @@ contract BidOrderTest is MarketTest {
         vm.assume(quantity != 0);
         vm.assume(trades != 0);
         vm.assume(variance != 0);
+        vm.assume(quantity >= price);
 
         // cast to uint128 to avoid overflow from variance arithmetic
         uint128 variedPrice = price;
@@ -992,6 +995,7 @@ contract PriceLevelTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
         market.place(
             Market.Trade(
                 Market.KIND.LIMIT,
@@ -1054,24 +1058,41 @@ contract OrderSettlementTest is MarketTest {
         uint256 askQuantityU256 = uint256(askQuantity);
         uint256 priceU256 = uint256(price);
 
-        uint256 remainingNumeraire = bidQuantityU256 % priceU256;
-
         if (askQuantityU256 * priceU256 == bidQuantityU256) {
+            // Exact match case
             assertEq(bidDepth, 0);
             assertEq(askDepth, 0);
             assertEq(bids.length, 0);
             assertEq(asks.length, 0);
         } else if (askQuantityU256 * priceU256 > bidQuantityU256) {
-            assertEq(bidDepth, uint128(remainingNumeraire));
+            // Bid fully consumed, ask partially filled
+            assertEq(bidDepth, 0);
             assertEq(
                 askDepth, (askQuantityU256 - (bidQuantityU256 / priceU256))
             );
             assertEq(bids.length, 0);
             assertEq(asks.length, 1);
         } else {
-            assertEq(bidDepth, bidQuantityU256 - (askQuantityU256 * priceU256));
+            // Ask fully consumed, bid partially filled
+            uint256 remainingNumeraire =
+                bidQuantityU256 - (askQuantityU256 * priceU256);
+            bool isDust =
+                remainingNumeraire > 0 && remainingNumeraire / priceU256 == 0;
+            // Check if remaining is dust
+            if (isDust) {
+                // If it's dust, the order should be marked as FILLED and
+                // removed from the queue
+                assertEq(bidDepth, 0);
+                assertEq(bids.length, 0); // Dust orders are removed from the
+                    // queue
+            } else {
+                // If it's not dust, the order should be PARTIAL and still in
+                // the queue
+                assertEq(bidDepth, remainingNumeraire);
+                assertEq(bids.length, 1);
+            }
+
             assertEq(askDepth, 0);
-            assertEq(bids.length, 1);
             assertEq(asks.length, 0);
         }
     }
@@ -1255,6 +1276,47 @@ contract OrderSettlementTest is MarketTest {
         assertEq(askDepth, 0);
     }
 
+    function test_bid_dust_handling() public {
+        // Place a bid with amount that will leave dust
+        uint128 price = 99;
+        uint128 bidAmount = 1334; // Will result in 47 dust
+
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                bidAmount
+            )
+        );
+
+        // Verify bid is placed correctly
+        (uint128 initialBidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(initialBidDepth, bidAmount);
+
+        // Place ask that will only partially fill the bid
+        uint128 askAmount = 13; // Will consume 13*99 = 1287 numeraire, leaving
+            // 47 dust
+
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                askAmount
+            )
+        );
+
+        // Verify dust is handled correctly
+        (uint128 finalBidDepth,) = market.depth(Market.Price.wrap(price));
+        uint64[] memory finalBids = market.bids(Market.Price.wrap(price));
+
+        assertEq(finalBidDepth, 0, "Bid depth should be zero due to dust");
+        assertEq(finalBids.length, 0, "No bids should remain in queue");
+    }
+
 }
 
 contract RemoveOrderTest is MarketTest {
@@ -1268,6 +1330,7 @@ contract RemoveOrderTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
 
         // Place a bid
         Market.Trade memory bid = Market.Trade(
@@ -1400,6 +1463,7 @@ contract RemoveOrderTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
 
         // Place a bid as JORDAN
         vm.prank(JORDAN);
