@@ -1488,6 +1488,206 @@ contract RemoveOrderTest is MarketTest {
 
 }
 
+contract ReduceOrderTest is MarketTest {
+
+    function test_reduce_bid(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+
+        // Place a bid
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        uint256 initialUserBalance = numeraire.balanceOf(JORDAN);
+        uint256 initialMarketBalance = numeraire.balanceOf(address(market));
+
+        market.place(bid);
+
+        // Verify bid is placed
+        (uint128 bidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, quantity);
+        assertEq(numeraire.balanceOf(JORDAN), initialUserBalance - quantity);
+
+        // Reduce the order
+        uint128 newRemaining = quantity / 2;
+        market.reduce(1, newRemaining);
+
+        // Verify bid is reduced
+        (bidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, newRemaining);
+
+        // Verify funds partially returned
+        assertEq(numeraire.balanceOf(JORDAN), initialUserBalance - newRemaining);
+        assertEq(
+            numeraire.balanceOf(address(market)),
+            initialMarketBalance + newRemaining
+        );
+
+        // Verify order is still in queue
+        uint64[] memory bids = market.bids(Market.Price.wrap(price));
+        assertEq(bids.length, 1);
+
+        // Verify order details
+        Market.Order memory order = market.getOrder(1);
+        assertEq(order.remaining, newRemaining);
+    }
+
+    function test_reduce_ask(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > 1);
+
+        // Place an ask
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        uint256 initialUserBalance = index.balanceOf(JORDAN);
+        uint256 initialMarketBalance = index.balanceOf(address(market));
+
+        market.place(ask);
+
+        // Verify ask is placed
+        (, uint128 askDepth) = market.depth(Market.Price.wrap(price));
+        assertEq(askDepth, quantity);
+        assertEq(index.balanceOf(JORDAN), initialUserBalance - quantity);
+
+        // Reduce the order
+        uint128 newRemaining = quantity / 2;
+        market.reduce(1, newRemaining);
+
+        // Verify ask is reduced
+        (, askDepth) = market.depth(Market.Price.wrap(price));
+        assertEq(askDepth, newRemaining);
+
+        // Verify funds partially returned
+        assertEq(index.balanceOf(JORDAN), initialUserBalance - newRemaining);
+        assertEq(
+            index.balanceOf(address(market)),
+            initialMarketBalance + newRemaining
+        );
+
+        // Verify order is still in queue
+        uint64[] memory asks = market.asks(Market.Price.wrap(price));
+        assertEq(asks.length, 1);
+
+        // Verify order details
+        Market.Order memory order = market.getOrder(1);
+        assertEq(order.remaining, newRemaining);
+    }
+
+    function test_reduce_to_zero(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+
+        // Place a bid
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        uint256 initialUserBalance = numeraire.balanceOf(JORDAN);
+
+        market.place(bid);
+
+        // Reduce to zero
+        market.reduce(1, 0);
+
+        // Verify bid is removed
+        (uint128 bidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, 0);
+
+        // Verify order is not in queue
+        uint64[] memory bids = market.bids(Market.Price.wrap(price));
+        assertEq(bids.length, 0);
+
+        // Verify all funds returned
+        assertEq(numeraire.balanceOf(JORDAN), initialUserBalance);
+
+        // Verify order status is CANCELLED
+        Market.Order memory order = market.getOrder(1);
+        assertEq(uint8(order.status), uint8(Market.STATUS.CANCELLED));
+    }
+
+    function test_reduce_unauthorized(uint16 price, uint16 quantity) public {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+
+        // Place a bid as JORDAN
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                quantity
+            )
+        );
+
+        // Reduce by 50%
+        uint128 newRemaining = quantity / 2;
+
+        // Try to reduce it as DONNIE (unauthorized)
+        vm.prank(DONNIE);
+        vm.expectRevert(abi.encodeWithSelector(Market.Unauthorized.selector));
+        market.reduce(1, newRemaining);
+    }
+
+    function test_reduce_invalid_amount(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+        vm.assume(quantity < type(uint16).max);
+
+        // Place a bid
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        market.place(bid);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Market.InvalidReduction.selector)
+        );
+        market.reduce(1, quantity + 1);
+    }
+
+}
+
 contract MakerFeeTest is MarketTest {}
 
 contract TakerFeeTest is MarketTest {}
