@@ -191,6 +191,12 @@ contract Market {
     /// @notice thrown when there is no liquidity to fill a market order
     error InsufficientLiquidity();
 
+    /// @notice thrown when order is not in a reducible state
+    error OrderNotReducible();
+
+    /// @notice thrown when new quantity is not less than current remaining
+    error InvalidReduction();
+
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -213,6 +219,24 @@ contract Market {
         uint128 quantity,
         uint128 remaining,
         STATUS status,
+        uint32 blocknumber
+    );
+
+    /// @notice Emitted when an order's quantity is reduced
+    /// @custom:id unique identifier of the reduced order
+    /// @custom:trader address of the trader who owns the order
+    /// @custom:side indicates the direction of the order (BID/ASK)
+    /// @custom:price indicates the price level of the order
+    /// @custom:oldremaining previous remaining quantity before reduction
+    /// @custom:newremaining updated remaining quantity after reduction
+    /// @custom:blocknumber at which the reduction occurred
+    event OrderReduced(
+        uint64 indexed id,
+        address indexed trader,
+        SIDE side,
+        Price price,
+        uint128 oldremaining,
+        uint128 newremaining,
         uint32 blocknumber
     );
 
@@ -803,6 +827,90 @@ contract Market {
             ask.quantity,
             ask.remaining,
             ask.status,
+            uint32(block.number)
+        );
+    }
+
+    /// @notice reduces the remaining quantity of an open limit order
+    /// @dev new quantity must be less than current remaining quantity
+    /// @param id_ unique identifier assigned to order
+    /// @param newRemaining_ new remaining quantity
+    function reduce(uint64 id_, uint128 newRemaining_) public {
+        if (traders[id_] != msg.sender) revert Unauthorized();
+
+        Order storage order = orders[id_];
+
+        if (order.status != STATUS.OPEN && order.status != STATUS.PARTIAL) {
+            revert OrderNotReducible();
+        }
+
+        if (order.kind == KIND.MARKET) {
+            revert MarketOrderUnsupported();
+        }
+
+        // cache current remaining quantity
+        uint128 currentRemaining = order.remaining;
+
+        // ensure new quantity is less than current remaining
+        if (newRemaining_ >= currentRemaining) {
+            revert InvalidReduction();
+        }
+
+        uint128 reductionAmount = currentRemaining - newRemaining_;
+
+        // update order's remaining quantity
+        order.remaining = newRemaining_;
+
+        // update order status if completely reduced
+        if (newRemaining_ == 0) {
+            order.status = STATUS.CANCELLED;
+        }
+
+        Level storage level = levels[order.price];
+
+        if (order.side == SIDE.BID) {
+            // reduce bid depth of current price level
+            level.bidDepth -= reductionAmount;
+
+            // remove from queue if fully reduced
+            if (newRemaining_ == 0) {
+                level.bids.remove(id_);
+
+                // if this price level is now empty, remove it from the tree
+                if (level.bidDepth == 0) {
+                    uint128 treeKey =
+                        type(uint128).max - Price.unwrap(order.price);
+                    RedBlackTreeLib.remove(bidTree, treeKey);
+                }
+            }
+
+            /// @custom:settle reduced numeraire tokens
+            numeraire.transfer(msg.sender, reductionAmount);
+        } else {
+            //  reduce ask depth of current price level
+            level.askDepth -= reductionAmount;
+
+            // remove from queue if fully reduced
+            if (newRemaining_ == 0) {
+                level.asks.remove(id_);
+
+                // if this price level is now empty, remove it from the tree
+                if (level.askDepth == 0) {
+                    RedBlackTreeLib.remove(askTree, Price.unwrap(order.price));
+                }
+            }
+
+            /// @custom:settle reduced index tokens
+            index.transfer(msg.sender, reductionAmount);
+        }
+
+        emit OrderReduced(
+            id_,
+            msg.sender,
+            order.side,
+            order.price,
+            currentRemaining,
+            newRemaining_,
             uint32(block.number)
         );
     }
