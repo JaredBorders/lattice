@@ -19,6 +19,7 @@ contract MarketTest is Test {
 
     address internal constant JORDAN = address(0x01);
     address internal constant DONNIE = address(0x02);
+    address internal constant SARAH = address(0x03);
 
     uint256 internal constant GAS_OPCODE_COST = 2;
 
@@ -47,8 +48,10 @@ contract MarketTest is Test {
     function _setup_balances() internal {
         numeraire.mint(JORDAN, type(uint128).max);
         numeraire.mint(DONNIE, type(uint128).max);
+        numeraire.mint(SARAH, type(uint128).max);
         index.mint(JORDAN, type(uint128).max);
         index.mint(DONNIE, type(uint128).max);
+        index.mint(SARAH, type(uint128).max);
     }
 
     function _setup_allowances() internal {
@@ -58,6 +61,11 @@ contract MarketTest is Test {
         vm.stopPrank();
 
         vm.startPrank(DONNIE);
+        numeraire.approve(address(market), type(uint256).max);
+        index.approve(address(market), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(SARAH);
         numeraire.approve(address(market), type(uint256).max);
         index.approve(address(market), type(uint256).max);
         vm.stopPrank();
@@ -76,6 +84,7 @@ contract BidOrderTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
 
         // observe initial token balances
         uint256 preTraderBalance = numeraire.balanceOf(JORDAN);
@@ -123,6 +132,7 @@ contract BidOrderTest is MarketTest {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
         vm.assume(trades != 0);
+        vm.assume(quantity >= price);
 
         // observe initial token balances
         uint256 preTraderBalance = numeraire.balanceOf(JORDAN);
@@ -182,6 +192,7 @@ contract BidOrderTest is MarketTest {
         vm.assume(quantity != 0);
         vm.assume(trades != 0);
         vm.assume(variance != 0);
+        vm.assume(quantity >= price);
 
         // cast to uint128 to avoid overflow from variance arithmetic
         uint128 variedPrice = price;
@@ -266,13 +277,73 @@ contract BidOrderTest is MarketTest {
         );
     }
 
+    function test_limit_bid_matches_better_asks_first(
+        uint16 betterPrice,
+        uint16 bidPrice,
+        uint16 quantity
+    )
+        public
+    {
+        vm.assume(betterPrice > 0);
+        vm.assume(bidPrice > betterPrice); // bid must improve over ask
+        vm.assume(quantity > 0);
+
+        uint128 pBetter = betterPrice;
+        uint128 pBid = bidPrice;
+        uint128 q = quantity;
+
+        // Place better ask
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(pBetter),
+                q
+            )
+        );
+
+        uint256 preIndex = index.balanceOf(JORDAN);
+        uint256 preNumeraire = numeraire.balanceOf(JORDAN);
+
+        // Place bid at higher price
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(pBid),
+                pBid * q
+            )
+        );
+
+        uint256 postIndex = index.balanceOf(JORDAN);
+        uint256 postNumeraire = numeraire.balanceOf(JORDAN);
+
+        // Confirm index tokens received
+        assertEq(postIndex, preIndex + q);
+
+        // Confirm numeraire spent is at least pBetter * q, and at most pBid * q
+        uint256 spent = preNumeraire - postNumeraire;
+        assertGe(spent, uint256(pBetter) * q);
+        assertLe(spent, uint256(pBid) * q);
+    }
+
 }
 
 contract BidBenchmarkTest is BidOrderTest {
 
-    uint256 private constant BID_GAS_BENCHMARK = 210_439;
+    uint256 private constant BID_GAS_BENCHMARK = 236_478;
     uint256 private constant GAS_BLOCK_LIMIT = 30_000_000;
-    uint256 private constant MAX_BIDS_PER_BLOCK = 142;
+    uint256 private constant MAX_BIDS_PER_BLOCK = 126;
+
+    uint256 private constant MATCHING_BID_GAS_BENCHMARK = 242_767;
+    uint256 private constant MAX_MATCHING_BIDS_PER_BLOCK = 123;
+
+    uint256 private constant MATCHING_BID_C_GAS_BENCHMARK = 618_515;
+    ///@dev in practice, only one bid will have to go through all cancelled
+    /// orders on a price level
+    uint256 private constant MAX_MATCHING_BIDS_C_PER_BLOCK = 48;
 
     function test_benchmark_place_bid() public prankster(DONNIE) {
         vm.skip(true);
@@ -300,6 +371,104 @@ contract BidBenchmarkTest is BidOrderTest {
 
         assertEq(gas, BID_GAS_BENCHMARK);
         assertEq(MAX_BIDS_PER_BLOCK, GAS_BLOCK_LIMIT / BID_GAS_BENCHMARK);
+    }
+
+    function test_benchmark_place_bid_matching() public {
+        vm.skip(true);
+
+        /// @custom:market sUSD:sETH Market
+        /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
+        uint128 price = 1_919_470_000_000_000_000_000;
+
+        uint128 quantity = 10;
+        uint128 bidQuantity = price * quantity * 10;
+
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        // Place 10 ask that will be filled by place bid
+        vm.startPrank(JORDAN);
+        for (uint256 i = 0; i < 10; i++) {
+            market.place(ask);
+        }
+        vm.stopPrank();
+
+        // Now place a matching bid as DONNIE
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            bidQuantity
+        );
+
+        uint256 gas = gasleft();
+
+        vm.prank(DONNIE);
+        market.place(bid);
+
+        gas = (gas - gasleft()) + GAS_OPCODE_COST;
+
+        assertEq(gas, MATCHING_BID_GAS_BENCHMARK);
+        assertEq(
+            MAX_MATCHING_BIDS_PER_BLOCK,
+            GAS_BLOCK_LIMIT / MATCHING_BID_GAS_BENCHMARK
+        );
+    }
+
+    function test_benchmark_place_bid_matching_with_cancelled_orders() public {
+        vm.skip(true);
+
+        /// @custom:market sUSD:sETH Market
+        /// @custom:observed ETH price Mar-18-2025 11:04:59 PM +UTC
+        uint128 price = 1_919_470_000_000_000_000_000;
+
+        uint128 quantity = 10;
+        uint128 bidQuantity = price * quantity * 10;
+
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        // Make 100 canceled orders
+        vm.startPrank(JORDAN);
+        for (uint256 i = 0; i < 100; i++) {
+            market.place(ask);
+            market.remove(uint64(i + 1));
+        }
+
+        // Place 10 ask that will be filled by place bid
+        for (uint256 i = 0; i < 10; i++) {
+            market.place(ask);
+        }
+        vm.stopPrank();
+
+        // Now place a matching bid as DONNIE
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            bidQuantity
+        );
+
+        uint256 gas = gasleft();
+
+        vm.prank(DONNIE);
+        market.place(bid);
+
+        gas = (gas - gasleft()) + GAS_OPCODE_COST;
+
+        assertEq(gas, MATCHING_BID_C_GAS_BENCHMARK);
+        assertEq(
+            MAX_MATCHING_BIDS_C_PER_BLOCK,
+            GAS_BLOCK_LIMIT / MATCHING_BID_C_GAS_BENCHMARK
+        );
     }
 
 }
@@ -505,6 +674,266 @@ contract AskOrderTest is MarketTest {
         );
     }
 
+    function test_limit_ask_matches_better_bids_first(
+        uint16 betterPrice,
+        uint16 askPrice,
+        uint16 quantity
+    )
+        public
+    {
+        vm.assume(askPrice > 0);
+        vm.assume(betterPrice > askPrice);
+        vm.assume(quantity > 0);
+
+        uint128 pBetter = betterPrice;
+        uint128 pAsk = askPrice;
+        uint128 q = quantity;
+
+        // Place better bid
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(pBetter),
+                pBetter * q
+            )
+        );
+
+        uint256 preIndex = index.balanceOf(JORDAN);
+        uint256 preNumeraire = numeraire.balanceOf(JORDAN);
+
+        // Jordan sells at 100, should match at 120
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT, Market.SIDE.ASK, Market.Price.wrap(pAsk), q
+            )
+        );
+
+        assertEq(index.balanceOf(JORDAN), preIndex - q);
+        assertEq(numeraire.balanceOf(JORDAN), preNumeraire + (pBetter * q));
+    }
+
+}
+
+contract MarketOrderTest is MarketTest {
+
+    uint128 constant PADDING = 10_000;
+
+    function test_market_bid_fills_best_ask_levels(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > 1); // need > 1 to test fill + refund
+
+        // Place an ask at a price
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                quantity
+            )
+        );
+
+        uint128 costToBuy = uint128(price) * uint128(quantity);
+        uint128 marketBidQuantity = costToBuy + PADDING;
+
+        // Place market bid that overbuys with padding
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.MARKET,
+                Market.SIDE.BID,
+                Market.Price.wrap(1),
+                marketBidQuantity
+            )
+        );
+
+        // Check that order book is now empty at that level
+        (uint128 bidDepth, uint128 askDepth) =
+            market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, 0);
+        assertEq(askDepth, 0);
+    }
+
+    function test_market_ask_fills_best_bid_levels(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > 1);
+
+        uint128 costToBuy = uint128(price) * uint128(quantity);
+
+        // Place a bid at a price
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                costToBuy
+            )
+        );
+
+        // Place market ask to match it
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.MARKET,
+                Market.SIDE.ASK,
+                Market.Price.wrap(1),
+                quantity
+            )
+        );
+
+        // Check that order book is now empty at that level
+        (uint128 bidDepth, uint128 askDepth) =
+            market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, 0);
+        assertEq(askDepth, 0);
+    }
+
+    function test_market_bid_refund_on_partial_fill(uint16 price) public {
+        vm.assume(price != 0);
+
+        uint128 quantity = 1;
+
+        // Place small ask
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                quantity
+            )
+        );
+
+        uint128 cost = uint128(price) * quantity;
+        uint128 padded = cost + PADDING;
+
+        uint256 preBalance = numeraire.balanceOf(JORDAN);
+
+        // Place overfunded market bid
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.MARKET,
+                Market.SIDE.BID,
+                Market.Price.wrap(1),
+                padded
+            )
+        );
+
+        uint256 postBalance = numeraire.balanceOf(JORDAN);
+
+        // Expect refund of PADDING
+        assertEq(postBalance, preBalance - cost);
+    }
+
+    function test_market_ask_refund_on_partial_fill(uint16 price) public {
+        vm.assume(price != 0);
+
+        uint128 quantity = 10;
+        uint128 cost = uint128(price) * 1;
+
+        // Place small bid that can only buy 1 token
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                cost
+            )
+        );
+
+        uint256 preBalance = index.balanceOf(JORDAN);
+
+        // Place larger market ask
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.MARKET,
+                Market.SIDE.ASK,
+                Market.Price.wrap(1),
+                quantity
+            )
+        );
+
+        uint256 postBalance = index.balanceOf(JORDAN);
+
+        // Expect refund of 9 tokens
+        assertEq(postBalance, preBalance - 1);
+    }
+
+    function test_market_bid_crosses_multiple_ask_levels(
+        uint16 lowPrice,
+        uint16 highPrice,
+        uint16 quantityLow,
+        uint16 quantityHigh
+    )
+        public
+    {
+        vm.assume(lowPrice > 0 && highPrice > lowPrice);
+        vm.assume(quantityLow > 0 && quantityHigh > 0);
+
+        uint128 pLow = lowPrice;
+        uint128 pHigh = highPrice;
+        uint128 qLow = quantityLow;
+        uint128 qHigh = quantityHigh;
+
+        vm.startPrank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(pLow),
+                qLow
+            )
+        );
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(pHigh),
+                qHigh
+            )
+        );
+        vm.stopPrank();
+
+        uint128 totalCost = (pLow * qLow) + (pHigh * qHigh);
+        uint128 padded = totalCost + PADDING;
+
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.MARKET,
+                Market.SIDE.BID,
+                Market.Price.wrap(1),
+                padded
+            )
+        );
+
+        (uint128 bidLow, uint128 askLow) = market.depth(Market.Price.wrap(pLow));
+        (uint128 bidHigh, uint128 askHigh) =
+            market.depth(Market.Price.wrap(pHigh));
+
+        assertEq(bidLow, 0);
+        assertEq(askLow, 0);
+        assertEq(bidHigh, 0);
+        assertEq(askHigh, 0);
+    }
+
 }
 
 contract AskBenchmarkTest is AskOrderTest {
@@ -566,6 +995,7 @@ contract PriceLevelTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
         market.place(
             Market.Trade(
                 Market.KIND.LIMIT,
@@ -629,11 +1059,13 @@ contract OrderSettlementTest is MarketTest {
         uint256 priceU256 = uint256(price);
 
         if (askQuantityU256 * priceU256 == bidQuantityU256) {
+            // Exact match case
             assertEq(bidDepth, 0);
             assertEq(askDepth, 0);
             assertEq(bids.length, 0);
             assertEq(asks.length, 0);
         } else if (askQuantityU256 * priceU256 > bidQuantityU256) {
+            // Bid fully consumed, ask partially filled
             assertEq(bidDepth, 0);
             assertEq(
                 askDepth, (askQuantityU256 - (bidQuantityU256 / priceU256))
@@ -641,9 +1073,26 @@ contract OrderSettlementTest is MarketTest {
             assertEq(bids.length, 0);
             assertEq(asks.length, 1);
         } else {
-            assertEq(bidDepth, bidQuantityU256 - (askQuantityU256 * priceU256));
+            // Ask fully consumed, bid partially filled
+            uint256 remainingNumeraire =
+                bidQuantityU256 - (askQuantityU256 * priceU256);
+            bool isDust =
+                remainingNumeraire > 0 && remainingNumeraire / priceU256 == 0;
+            // Check if remaining is dust
+            if (isDust) {
+                // If it's dust, the order should be marked as FILLED and
+                // removed from the queue
+                assertEq(bidDepth, 0);
+                assertEq(bids.length, 0); // Dust orders are removed from the
+                    // queue
+            } else {
+                // If it's not dust, the order should be PARTIAL and still in
+                // the queue
+                assertEq(bidDepth, remainingNumeraire);
+                assertEq(bids.length, 1);
+            }
+
             assertEq(askDepth, 0);
-            assertEq(bids.length, 1);
             assertEq(asks.length, 0);
         }
     }
@@ -827,6 +1276,47 @@ contract OrderSettlementTest is MarketTest {
         assertEq(askDepth, 0);
     }
 
+    function test_bid_dust_handling() public {
+        // Place a bid with amount that will leave dust
+        uint128 price = 99;
+        uint128 bidAmount = 1334; // Will result in 47 dust
+
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                bidAmount
+            )
+        );
+
+        // Verify bid is placed correctly
+        (uint128 initialBidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(initialBidDepth, bidAmount);
+
+        // Place ask that will only partially fill the bid
+        uint128 askAmount = 13; // Will consume 13*99 = 1287 numeraire, leaving
+            // 47 dust
+
+        vm.prank(DONNIE);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.ASK,
+                Market.Price.wrap(price),
+                askAmount
+            )
+        );
+
+        // Verify dust is handled correctly
+        (uint128 finalBidDepth,) = market.depth(Market.Price.wrap(price));
+        uint64[] memory finalBids = market.bids(Market.Price.wrap(price));
+
+        assertEq(finalBidDepth, 0, "Bid depth should be zero due to dust");
+        assertEq(finalBids.length, 0, "No bids should remain in queue");
+    }
+
 }
 
 contract RemoveOrderTest is MarketTest {
@@ -840,6 +1330,7 @@ contract RemoveOrderTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
 
         // Place a bid
         Market.Trade memory bid = Market.Trade(
@@ -859,7 +1350,7 @@ contract RemoveOrderTest is MarketTest {
         assertEq(bidDepth, quantity);
         assertEq(numeraire.balanceOf(JORDAN), initialUserBalance - quantity);
 
-        market.remove(0);
+        market.remove(1);
 
         // Verify bid is removed
         (bidDepth,) = market.depth(Market.Price.wrap(price));
@@ -898,7 +1389,7 @@ contract RemoveOrderTest is MarketTest {
         assertEq(askDepth, quantity);
         assertEq(index.balanceOf(JORDAN), initialUserBalance - quantity);
 
-        market.remove(0);
+        market.remove(1);
 
         // Verify ask is removed
         (, askDepth) = market.depth(Market.Price.wrap(price));
@@ -927,7 +1418,7 @@ contract RemoveOrderTest is MarketTest {
         // Try to remove it as DONNIE (unauthorized)
         vm.prank(DONNIE);
         vm.expectRevert(abi.encodeWithSelector(Market.Unauthorized.selector));
-        market.remove(0);
+        market.remove(1);
     }
 
     function test_remove_filled_order(uint16 price, uint16 quantity) public {
@@ -961,7 +1452,7 @@ contract RemoveOrderTest is MarketTest {
         // Try to remove the filled bid
         vm.prank(JORDAN);
         vm.expectRevert(abi.encodeWithSelector(Market.OrderFilled.selector));
-        market.remove(0);
+        market.remove(1);
     }
 
     function test_remove_cancelled_order(
@@ -972,6 +1463,7 @@ contract RemoveOrderTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
+        vm.assume(quantity >= price);
 
         // Place a bid as JORDAN
         vm.prank(JORDAN);
@@ -986,12 +1478,212 @@ contract RemoveOrderTest is MarketTest {
 
         // Cancel it
         vm.prank(JORDAN);
-        market.remove(0);
+        market.remove(1);
 
         // Try to remove it again
         vm.prank(JORDAN);
         vm.expectRevert(abi.encodeWithSelector(Market.OrderCancelled.selector));
-        market.remove(0);
+        market.remove(1);
+    }
+
+}
+
+contract ReduceOrderTest is MarketTest {
+
+    function test_reduce_bid(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+
+        // Place a bid
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        uint256 initialUserBalance = numeraire.balanceOf(JORDAN);
+        uint256 initialMarketBalance = numeraire.balanceOf(address(market));
+
+        market.place(bid);
+
+        // Verify bid is placed
+        (uint128 bidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, quantity);
+        assertEq(numeraire.balanceOf(JORDAN), initialUserBalance - quantity);
+
+        // Reduce the order
+        uint128 newRemaining = quantity / 2;
+        market.reduce(1, newRemaining);
+
+        // Verify bid is reduced
+        (bidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, newRemaining);
+
+        // Verify funds partially returned
+        assertEq(numeraire.balanceOf(JORDAN), initialUserBalance - newRemaining);
+        assertEq(
+            numeraire.balanceOf(address(market)),
+            initialMarketBalance + newRemaining
+        );
+
+        // Verify order is still in queue
+        uint64[] memory bids = market.bids(Market.Price.wrap(price));
+        assertEq(bids.length, 1);
+
+        // Verify order details
+        Market.Order memory order = market.getOrder(1);
+        assertEq(order.remaining, newRemaining);
+    }
+
+    function test_reduce_ask(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > 1);
+
+        // Place an ask
+        Market.Trade memory ask = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.ASK,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        uint256 initialUserBalance = index.balanceOf(JORDAN);
+        uint256 initialMarketBalance = index.balanceOf(address(market));
+
+        market.place(ask);
+
+        // Verify ask is placed
+        (, uint128 askDepth) = market.depth(Market.Price.wrap(price));
+        assertEq(askDepth, quantity);
+        assertEq(index.balanceOf(JORDAN), initialUserBalance - quantity);
+
+        // Reduce the order
+        uint128 newRemaining = quantity / 2;
+        market.reduce(1, newRemaining);
+
+        // Verify ask is reduced
+        (, askDepth) = market.depth(Market.Price.wrap(price));
+        assertEq(askDepth, newRemaining);
+
+        // Verify funds partially returned
+        assertEq(index.balanceOf(JORDAN), initialUserBalance - newRemaining);
+        assertEq(
+            index.balanceOf(address(market)),
+            initialMarketBalance + newRemaining
+        );
+
+        // Verify order is still in queue
+        uint64[] memory asks = market.asks(Market.Price.wrap(price));
+        assertEq(asks.length, 1);
+
+        // Verify order details
+        Market.Order memory order = market.getOrder(1);
+        assertEq(order.remaining, newRemaining);
+    }
+
+    function test_reduce_to_zero(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+
+        // Place a bid
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        uint256 initialUserBalance = numeraire.balanceOf(JORDAN);
+
+        market.place(bid);
+
+        // Reduce to zero
+        market.reduce(1, 0);
+
+        // Verify bid is removed
+        (uint128 bidDepth,) = market.depth(Market.Price.wrap(price));
+        assertEq(bidDepth, 0);
+
+        // Verify order is not in queue
+        uint64[] memory bids = market.bids(Market.Price.wrap(price));
+        assertEq(bids.length, 0);
+
+        // Verify all funds returned
+        assertEq(numeraire.balanceOf(JORDAN), initialUserBalance);
+
+        // Verify order status is CANCELLED
+        Market.Order memory order = market.getOrder(1);
+        assertEq(uint8(order.status), uint8(Market.STATUS.CANCELLED));
+    }
+
+    function test_reduce_unauthorized(uint16 price, uint16 quantity) public {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+
+        // Place a bid as JORDAN
+        vm.prank(JORDAN);
+        market.place(
+            Market.Trade(
+                Market.KIND.LIMIT,
+                Market.SIDE.BID,
+                Market.Price.wrap(price),
+                quantity
+            )
+        );
+
+        // Reduce by 50%
+        uint128 newRemaining = quantity / 2;
+
+        // Try to reduce it as DONNIE (unauthorized)
+        vm.prank(DONNIE);
+        vm.expectRevert(abi.encodeWithSelector(Market.Unauthorized.selector));
+        market.reduce(1, newRemaining);
+    }
+
+    function test_reduce_invalid_amount(
+        uint16 price,
+        uint16 quantity
+    )
+        public
+        prankster(JORDAN)
+    {
+        vm.assume(price != 0);
+        vm.assume(quantity > price);
+        vm.assume(quantity < type(uint16).max);
+
+        // Place a bid
+        Market.Trade memory bid = Market.Trade(
+            Market.KIND.LIMIT,
+            Market.SIDE.BID,
+            Market.Price.wrap(price),
+            quantity
+        );
+
+        market.place(bid);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Market.InvalidReduction.selector)
+        );
+        market.reduce(1, quantity + 1);
     }
 
 }
