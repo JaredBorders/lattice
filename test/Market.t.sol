@@ -84,8 +84,7 @@ contract BidOrderTest is MarketTest {
     {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
-        vm.assume(quantity >= price);
-
+        quantity = uint16(bound(uint256(quantity), uint256(price), type(uint16).max));
         // observe initial token balances
         uint256 preTraderBalance = numeraire.balanceOf(JORDAN);
         uint256 preMarketBalance = numeraire.balanceOf(address(market));
@@ -132,7 +131,7 @@ contract BidOrderTest is MarketTest {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
         vm.assume(trades != 0);
-        vm.assume(quantity >= price);
+        quantity = uint16(bound(uint256(quantity), uint256(price), type(uint16).max));
 
         // observe initial token balances
         uint256 preTraderBalance = numeraire.balanceOf(JORDAN);
@@ -192,7 +191,7 @@ contract BidOrderTest is MarketTest {
         vm.assume(quantity != 0);
         vm.assume(trades != 0);
         vm.assume(variance != 0);
-        vm.assume(quantity >= price);
+        quantity = uint16(bound(uint256(quantity), uint256(price), type(uint16).max));
 
         // cast to uint128 to avoid overflow from variance arithmetic
         uint128 variedPrice = price;
@@ -284,9 +283,10 @@ contract BidOrderTest is MarketTest {
     )
         public
     {
-        vm.assume(betterPrice > 0);
-        vm.assume(bidPrice > betterPrice); // bid must improve over ask
         vm.assume(quantity > 0);
+        betterPrice = uint16(bound(uint256(betterPrice), 1, type(uint16).max - 1));
+        // bid must improve over ask
+        bidPrice = uint16(bound(uint256(bidPrice), uint256(betterPrice) + 1, type(uint16).max));
 
         uint128 pBetter = betterPrice;
         uint128 pBid = bidPrice;
@@ -681,9 +681,9 @@ contract AskOrderTest is MarketTest {
     )
         public
     {
-        vm.assume(askPrice > 0);
-        vm.assume(betterPrice > askPrice);
         vm.assume(quantity > 0);
+        askPrice = uint16(bound(uint256(askPrice), 1, type(uint16).max - 1));
+        betterPrice = uint16(bound(uint256(betterPrice), uint256(askPrice) + 1, type(uint16).max));
 
         uint128 pBetter = betterPrice;
         uint128 pAsk = askPrice;
@@ -884,8 +884,10 @@ contract MarketOrderTest is MarketTest {
     )
         public
     {
-        vm.assume(lowPrice > 0 && highPrice > lowPrice);
-        vm.assume(quantityLow > 0 && quantityHigh > 0);
+        lowPrice = uint16(bound(uint256(lowPrice), 1, type(uint16).max - 1));
+        highPrice = uint16(bound(uint256(highPrice), uint256(lowPrice) + 1, type(uint16).max));
+        vm.assume(quantityLow != 0);
+        vm.assume(quantityHigh != 0);
 
         uint128 pLow = lowPrice;
         uint128 pHigh = highPrice;
@@ -994,8 +996,7 @@ contract PriceLevelTest is MarketTest {
         prankster(JORDAN)
     {
         vm.assume(price != 0);
-        vm.assume(quantity != 0);
-        vm.assume(quantity >= price);
+        quantity = uint16(bound(uint256(quantity), uint256(price), type(uint16).max));
         market.place(
             Market.Trade(
                 Market.KIND.LIMIT,
@@ -1100,7 +1101,6 @@ contract OrderSettlementTest is MarketTest {
     function test_bid_filled_by_ask(uint16 price, uint16 quantity) public {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
-        vm.assume(uint256(price) * uint256(quantity) <= type(uint32).max);
 
         // First place a bid as JORDAN
         uint128 bidQuantity = uint128(price) * uint128(quantity);
@@ -1168,7 +1168,6 @@ contract OrderSettlementTest is MarketTest {
     function test_ask_filled_by_bid(uint16 price, uint16 quantity) public {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
-        vm.assume(uint256(price) * uint256(quantity) <= type(uint32).max);
 
         // First place an ask as JORDAN
         Market.Trade memory ask = Market.Trade(
@@ -1233,12 +1232,9 @@ contract OrderSettlementTest is MarketTest {
         );
     }
 
-    function test_partial_fill(uint16 price, uint16 smallQuantity) public {
+    function test_partial_fill(uint16 price, uint8 smallQuantity) public {
         vm.assume(price != 0);
         vm.assume(smallQuantity != 0);
-        vm.assume(
-            uint256(price) * uint256(smallQuantity) <= type(uint32).max / 4
-        );
 
         uint128 smallBidValue = uint128(price) * uint128(smallQuantity);
         uint128 largeBidValue = smallBidValue * 3;
@@ -1259,7 +1255,7 @@ contract OrderSettlementTest is MarketTest {
             Market.KIND.LIMIT,
             Market.SIDE.ASK,
             Market.Price.wrap(price),
-            smallQuantity
+            uint16(smallQuantity)
         );
 
         vm.prank(DONNIE);
@@ -1329,8 +1325,7 @@ contract RemoveOrderTest is MarketTest {
         prankster(JORDAN)
     {
         vm.assume(price != 0);
-        vm.assume(quantity != 0);
-        vm.assume(quantity >= price);
+        quantity = uint16(bound(uint256(quantity), uint256(price), type(uint16).max));
 
         // Place a bid
         Market.Trade memory bid = Market.Trade(
@@ -1424,7 +1419,6 @@ contract RemoveOrderTest is MarketTest {
     function test_remove_filled_order(uint16 price, uint16 quantity) public {
         vm.assume(price != 0);
         vm.assume(quantity != 0);
-        vm.assume(uint256(price) * uint256(quantity) <= type(uint32).max);
 
         // First place a bid as JORDAN
         uint128 bidQuantity = uint128(price) * uint128(quantity);
@@ -1462,8 +1456,7 @@ contract RemoveOrderTest is MarketTest {
         public
     {
         vm.assume(price != 0);
-        vm.assume(quantity != 0);
-        vm.assume(quantity >= price);
+        quantity = uint16(bound(uint256(quantity), uint256(price), type(uint16).max));
 
         // Place a bid as JORDAN
         vm.prank(JORDAN);
@@ -1497,8 +1490,8 @@ contract ReduceOrderTest is MarketTest {
         public
         prankster(JORDAN)
     {
-        vm.assume(price != 0);
-        vm.assume(quantity > price);
+        price = uint16(bound(uint256(price), 1, type(uint16).max - 1));
+        quantity = uint16(bound(uint256(quantity), uint256(price) + 1, type(uint16).max));
 
         // Place a bid
         Market.Trade memory bid = Market.Trade(
@@ -1601,8 +1594,8 @@ contract ReduceOrderTest is MarketTest {
         public
         prankster(JORDAN)
     {
-        vm.assume(price != 0);
-        vm.assume(quantity > price);
+        price = uint16(bound(uint256(price), 1, type(uint16).max - 1));
+        quantity = uint16(bound(uint256(quantity), uint256(price) + 1, type(uint16).max));
 
         // Place a bid
         Market.Trade memory bid = Market.Trade(
@@ -1636,8 +1629,8 @@ contract ReduceOrderTest is MarketTest {
     }
 
     function test_reduce_unauthorized(uint16 price, uint16 quantity) public {
-        vm.assume(price != 0);
-        vm.assume(quantity > price);
+        price = uint16(bound(uint256(price), 1, type(uint16).max - 1));
+        quantity = uint16(bound(uint256(quantity), uint256(price) + 1, type(uint16).max));
 
         // Place a bid as JORDAN
         vm.prank(JORDAN);
@@ -1666,9 +1659,8 @@ contract ReduceOrderTest is MarketTest {
         public
         prankster(JORDAN)
     {
-        vm.assume(price != 0);
-        vm.assume(quantity > price);
-        vm.assume(quantity < type(uint16).max);
+        price = uint16(bound(uint256(price), 1, type(uint16).max - 2));
+        quantity = uint16(bound(uint256(quantity), uint256(price) + 1, type(uint16).max - 1));
 
         // Place a bid
         Market.Trade memory bid = Market.Trade(
